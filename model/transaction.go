@@ -1,4 +1,4 @@
-package main
+package model
 
 import (
 	"time"
@@ -10,13 +10,13 @@ const IDLEN = 16
 
 // instance of a routine
 type Transaction struct {
-	id     [IDLEN]byte
-	fromCl chan string
-	toCl   chan string
+	Id     [IDLEN]byte
+	FromCl chan string
+	ToCl   chan string
 }
 
 // genreate a random transaction id
-func newId() [IDLEN]byte {
+func NewId() [IDLEN]byte {
 	const charset = "abcdefghijklmnopqrstuvwxyz"
 	var seededRand *rand.Rand = rand.New(rand.NewSource(uint64(time.Now().UnixNano())))
 
@@ -28,17 +28,17 @@ func newId() [IDLEN]byte {
 
 }
 
-func makeTransaction() Transaction {
-	return makeTransactionWithId(newId())
+func MakeTransaction() Transaction {
+	return MakeTransactionWithId(NewId())
 }
 
-func makeTransactionWithId(id [IDLEN]byte) Transaction {
+func MakeTransactionWithId(id [IDLEN]byte) Transaction {
 
-	fromCl := make(chan string)
+	fromCl := make(chan string, 1)
 	toCl := make(chan string)
 	return Transaction{
-		id:     id,
-		fromCl: fromCl,
-		toCl:   toCl,
+		Id:     id,
+		FromCl: fromCl,
+		ToCl:   toCl,
 	}
 }

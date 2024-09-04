@@ -2,7 +2,7 @@
  * Structure to keep track of client details.
  */
 
-package main
+package model
 
 import (
 	"fmt"
@@ -11,28 +11,32 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// abstract function to pass all data for each instance to.
+type InstanceHandler func(<-chan string, chan<- string, *Client)
+
 type Client struct {
-	// lock to prevent simultaneous writes to the conn
+	PublicKey string
+
+	// PRIVATE METHODS: not accessible outside current package
+	// lock to prevent simultaneous writes to the websocket conn
 	connWriteMessageMu sync.Mutex
-
-	conn      *websocket.Conn
-	publicKey string
-
+	conn               *websocket.Conn
+	// map of active transactions for this client; id -> transaction
 	// should not access directly outside client.go
 	transactions map[[IDLEN]byte]Transaction
 }
 
-func makeClient(conn *websocket.Conn) Client {
+func MakeClient(conn *websocket.Conn) Client {
 	return Client{
-		conn:      conn,
-		publicKey: "", // initially unset
-		// map of active transactions for this client; id -> transaction
+		PublicKey: "", // initially unset
+
+		conn:         conn,
 		transactions: make(map[[IDLEN]byte]Transaction),
 	}
 }
 
 // a loop that demultiplexes messages and forwards them to correct handlers
-func (c *Client) route() {
+func (c *Client) Route(handleInstance InstanceHandler) {
 
 	for {
 		// read from websocket (blocking)
@@ -55,43 +59,51 @@ func (c *Client) route() {
 		t, exists := c.transactions[id]
 		// if so, pass the message to that transaction
 		if exists {
-			t.fromCl <- string(msgBytes[IDLEN:])
+			// if t.FromCl is blocking (buffer is full) then reject the incoming message
+			select {
+			case t.FromCl <- string(msgBytes[IDLEN:]):
+			default:
+				t.ToCl <- "Message rejected - buffer occupied"
+			}
 			continue
 		}
 
 		// otherwise create a new transaction
-		tNew := makeTransactionWithId(id)
+		tNew := MakeTransactionWithId(id)
 
 		// add to transaction list and add listeners
-		c.registerTransaction(tNew)
+		c.AddTransaction(tNew)
 
 		// start the new routine asyncronously
 		go func() {
-			defer c.deregisterTransaction(id)
-			MasterRoutine(tNew.fromCl, tNew.toCl, c)
+			defer c.DeleteTransaction(id)
+			handleInstance(tNew.FromCl, tNew.ToCl, c)
+			// routines.MasterRoutine(tNew.FromCl, tNew.ToCl, c)
 		}()
 
 		// send the initiating message to the routine
 		// it should be waiting.
-		tNew.fromCl <- string(msgBytes[IDLEN:])
+		tNew.FromCl <- string(msgBytes[IDLEN:])
 
 	}
 }
 
-func (c *Client) registerTransaction(transaction Transaction) {
+// Add a new transaction to the client.
+// The channels in the transaction will be assosiated with the provided id in the client.
+func (c *Client) AddTransaction(t Transaction) {
 
-	_, idExists := c.transactions[transaction.id]
+	_, idExists := c.transactions[t.Id]
 	if idExists {
 		panic("Attempted to registed a transaction id that already exists!")
 	}
 
-	c.transactions[transaction.id] = transaction
+	c.transactions[t.Id] = t
 
-	// concurrent function to forward messages sent to toCl
+	// concurrent function to forward messages on ToCl to the websocket
 	go func() {
-		for msg := range transaction.toCl {
+		for msg := range t.ToCl {
 			// prepend the transaction id
-			msgWithId := append(transaction.id[:], []byte(msg)...)
+			msgWithId := append(t.Id[:], []byte(msg)...)
 
 			// write message
 			err := func() error {
@@ -113,7 +125,7 @@ func (c *Client) registerTransaction(transaction Transaction) {
 
 }
 
-func (c *Client) deregisterTransaction(id [IDLEN]byte) {
+func (c *Client) DeleteTransaction(id [IDLEN]byte) {
 
 	// might have to wait a bit for the last message to be sent.
 	// dunno I saw that online
@@ -124,7 +136,7 @@ func (c *Client) deregisterTransaction(id [IDLEN]byte) {
 		panic("Attempted to deregister a transaction id that does not exist.")
 	}
 
-	close(t.fromCl)
-	close(t.toCl)
+	close(t.FromCl)
+	close(t.ToCl)
 	delete(c.transactions, id)
 }

@@ -8,9 +8,11 @@ import (
 
 	// "time"
 
+	"harmony/backend/model"
+	"harmony/backend/routines"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	// "src/routines"
 )
 
 // endpoints
@@ -41,8 +43,8 @@ func main() {
 		// defer means it executes after the function returns.
 		defer conn.Close()
 
-		client := makeClient(conn)
-		client.route()
+		client := model.MakeClient(conn)
+		client.Route(routines.MasterRoutine)
 	})
 
 	router.Run("0.0.0.0:8080")
