@@ -44,7 +44,7 @@ func main() {
 		defer conn.Close()
 
 		client := model.MakeClient(conn)
-		client.Route(routines.MasterRoutine)
+		client.Route(routines.MasterTestRoutine)
 	})
 
 	router.Run("0.0.0.0:8080")

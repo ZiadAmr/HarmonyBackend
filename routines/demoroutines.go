@@ -6,7 +6,7 @@ import (
 )
 
 // calls the correct handler based on the contents of the first message.
-func MasterRoutine(fromCl <-chan string, toCl chan<- string, c *model.Client) {
+func MasterTestRoutine(fromCl <-chan string, toCl chan<- string, c *model.Client) {
 	// inspect the first message to send it to the right handler
 	firstMsg := <-fromCl
 
