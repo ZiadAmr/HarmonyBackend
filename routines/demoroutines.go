@@ -36,14 +36,15 @@ func testRoutine(fromCl <-chan string, toCl chan<- string) {
 
 func comeOnline(fromCl <-chan string, toCl chan<- string, c *model.Client) {
 
-	if c.PublicKey != "" {
+	if c.PublicKey != nil {
 		toCl <- "You are already online"
 		return
 	}
 
 	toCl <- "My version number is..."
-	publicKey := <-fromCl
-	c.PublicKey = publicKey
+	<-fromCl
+	// publicKey := <-fromCl
+	// *c.PublicKey = ([model.KEYLEN]byte)(publicKey)
 	toCl <- "Welcome"
 
 }

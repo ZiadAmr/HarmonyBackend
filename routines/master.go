@@ -1,6 +1,7 @@
 package routines
 
 import (
+	"encoding/json"
 	"fmt"
 	"harmony/backend/model"
 	"strings"
@@ -8,8 +9,19 @@ import (
 	"github.com/xeipuuv/gojsonschema"
 )
 
+// helper function to convert json schema parse error to string
+func formatJSONError(result *gojsonschema.Result) string {
+	var errorStrings []string
+	for _, error := range result.Errors() {
+		errorStrings = append(errorStrings, error.Description())
+	}
+	return strings.Join(errorStrings, ", ")
+}
+
+const VERSION = "0.0"
+
 // list of acceptable values of the `"initiate":` property
-var routineNames = []string{"comeOnline"}
+var routineNames = []string{"comeOnline", "establishConnectionToPeer"}
 
 // schema to look for and validate the "initiate:" property
 var initiateSchema = func() *gojsonschema.Schema {
@@ -35,9 +47,15 @@ var initiateSchema = func() *gojsonschema.Schema {
 	return schema
 }()
 
+// type for parsed json
+type InitiateMessage struct {
+	Initiate string
+}
+
 // abstracted routine functions for testing/dependency injection
 type Routines interface {
 	ComeOnline()
+	EstablishConnectionToPeer()
 }
 
 func MasterRoutine(r Routines, client *model.Client, fromCl chan string, toCl chan string) {
@@ -56,6 +74,20 @@ func MasterRoutine(r Routines, client *model.Client, fromCl chan string, toCl ch
 		return
 	}
 
-	// would check the actual value of initiate here.
-	r.ComeOnline()
+	parsed := InitiateMessage{}
+	err = json.Unmarshal([]byte(firstMessage), &parsed)
+
+	if err != nil {
+		panic(err.Error())
+	}
+
+	switch parsed.Initiate {
+	case "comeOnline":
+		r.ComeOnline()
+	case "establishConnectionToPeer":
+		r.EstablishConnectionToPeer()
+	default:
+		panic("Unrecognized routine")
+	}
+
 }

@@ -11,11 +11,16 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// length of key in bytes
+const KEYLEN = 64
+
+type PublicKey [KEYLEN]byte
+
 // abstract function to pass all data for each instance to.
 type InstanceHandler func(<-chan string, chan<- string, *Client)
 
 type Client struct {
-	PublicKey string
+	PublicKey *PublicKey
 
 	// PRIVATE METHODS: not accessible outside current package
 	// lock to prevent simultaneous writes to the websocket conn
@@ -28,7 +33,7 @@ type Client struct {
 
 func MakeClient(conn *websocket.Conn) Client {
 	return Client{
-		PublicKey: "", // initially unset
+		PublicKey: nil, // initially unset
 
 		conn:         conn,
 		transactions: make(map[[IDLEN]byte]Transaction),
