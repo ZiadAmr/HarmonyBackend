@@ -30,12 +30,61 @@ const comeOnlineWelcomeResponseSchema = `{
   "additionalProperties": false
 }`
 
-func TestComeOnline(t *testing.T) {
+type Step struct {
+	kind    string
+	content string
+}
 
-	type Step struct {
-		kind    string
-		content string
+// feed inputs and validate output over the two channels.
+// stops when a message is sent to `done`. Requires a `done` message following the last step
+func runSteps(steps []Step, fromCl chan string, toCl chan string, done chan struct{}, t *testing.T) {
+	for _, step := range steps {
+		switch step.kind {
+		case "input":
+			select {
+			case <-shortTimePassed():
+				t.Errorf("Timeout on input:\n%s", step.content)
+				return
+			case fromCl <- step.content:
+			case <-done:
+				return
+			}
+		case "outputSchema":
+			var output string
+			select {
+			case <-shortTimePassed():
+				t.Errorf("Timeout waiting for output:\n%s", step.content)
+				return
+			case output = <-toCl:
+			case <-done:
+				return
+			}
+
+			// verify output against schema
+			schemaLoader := gojsonschema.NewStringLoader(step.content)
+			outputLoader := gojsonschema.NewStringLoader(output)
+
+			result, err := gojsonschema.Validate(schemaLoader, outputLoader)
+
+			if err != nil {
+				t.Errorf(err.Error())
+				return
+			}
+
+			if !result.Valid() {
+				t.Errorf("%s. Got:\n%s", formatJSONError(result), output)
+			}
+		}
 	}
+	select {
+	case <-shortTimePassed():
+		t.Errorf("Timeout waiting for routine to end")
+		return
+	case <-done:
+	}
+}
+
+func TestComeOnline(t *testing.T) {
 
 	t.Run("runs correctly on valid inputs", func(t *testing.T) {
 
@@ -81,56 +130,29 @@ func TestComeOnline(t *testing.T) {
 				r := RoutinesDefn{}
 				FromCl := make(chan string)
 				ToCl := make(chan string)
+				ErrCl := make(chan string, 1)
+				defer close(ErrCl)
 
 				// use to check that routine has returned/finished.
 				// struct{} means nothing - don't actually pass any value
 				done := make(chan struct{})
 
 				go func() {
-					r.ComeOnline(mockClient, FromCl, ToCl)
+					defer close(FromCl)
+					defer close(ToCl)
+					r.ComeOnline(mockClient, FromCl, ToCl, ErrCl)
 					done <- struct{}{}
 				}()
 
-				for _, step := range tt.steps {
-					switch step.kind {
-					case "input":
-						select {
-						case <-waitForHang():
-							t.Errorf("Timeout on input:\n%s", step.content)
-							return
-						case FromCl <- step.content:
-						}
-					case "outputSchema":
-						var output string
-						select {
-						case <-waitForHang():
-							t.Errorf("Timeout waiting for output:\n%s", step.content)
-							return
-						case output = <-ToCl:
-						}
+				// pass test inputs in and validate outputs
+				runSteps(tt.steps, FromCl, ToCl, done, t)
 
-						// verify output against schema
-						schemaLoader := gojsonschema.NewStringLoader(step.content)
-						outputLoader := gojsonschema.NewStringLoader(output)
-
-						result, err := gojsonschema.Validate(schemaLoader, outputLoader)
-
-						if err != nil {
-							t.Errorf(err.Error())
-							return
-						}
-
-						if !result.Valid() {
-							t.Errorf("%s. Got:\n%s", formatJSONError(result), output)
-						}
-					}
-				}
-
+				// expect no errors
 				select {
-				case <-waitForHang():
-					t.Errorf("Timeout waiting for routine to end")
+				case err := <-ErrCl:
+					t.Errorf(err)
 					return
-				case <-done:
+				default:
 				}
 
 				// check that the key has been updated as expected
@@ -141,9 +163,68 @@ func TestComeOnline(t *testing.T) {
 		}
 	})
 
-	// t.Run("cancels transaction on bad inputs", func(t *testing.T) {
-	// 	// TODO
-	// })
+	t.Run("cancels transaction on bad public key message", func(t *testing.T) {
+
+		tests := []struct {
+			steps []Step
+		}{
+			{
+				steps: []Step{
+					{
+						"input",
+						`{"initiate": "comeOnline"}`,
+					},
+					{
+						"outputSchema",
+						comeOnlineVersionResponseSchema,
+					},
+					{
+						"input",
+						`bad input!!!!!`,
+					},
+					{
+						"outputSchema",
+						comeOnlineWelcomeResponseSchema,
+					},
+				},
+			},
+		}
+
+		for i, tt := range tests {
+			t.Run(strconv.Itoa(i), func(t *testing.T) {
+
+				// mocks
+				mockClient := &model.Client{}
+				r := RoutinesDefn{}
+				FromCl := make(chan string)
+				ToCl := make(chan string)
+				ErrCl := make(chan string, 1)
+				defer close(ErrCl)
+
+				// use to check that routine has returned/finished.
+				// struct{} means nothing - don't actually pass any value
+				done := make(chan struct{})
+				defer close(done)
+
+				go func() {
+					defer close(FromCl)
+					defer close(ToCl)
+					r.ComeOnline(mockClient, FromCl, ToCl, ErrCl)
+					done <- struct{}{}
+				}()
+
+				// pass test inputs in and validate outputs
+				runSteps(tt.steps, FromCl, ToCl, done, t)
+
+				// check to see if there was an error
+				select {
+				case <-ErrCl:
+				default:
+					t.Errorf("Expected an error.")
+				}
+			})
+		}
+	})
 
 	// t.Run("cancels transaction if public key is already signed in", func(t *testing.T) {
 	// 	// TODO

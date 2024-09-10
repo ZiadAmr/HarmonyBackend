@@ -8,7 +8,7 @@ import (
 
 // returns a channel that will send a message after 10ms.
 // can use this in a select statement to check for timeouts.
-func waitForHang() <-chan time.Time {
+func shortTimePassed() <-chan time.Time {
 	return time.After(10 * time.Millisecond)
 }
 

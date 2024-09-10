@@ -10,7 +10,7 @@ import (
 	"github.com/xeipuuv/gojsonschema"
 )
 
-func (r *RoutinesDefn) ComeOnline(client *model.Client, fromCl chan string, toCl chan string) {
+func (r *RoutinesDefn) ComeOnline(client *model.Client, fromCl chan string, toCl chan string, errCl chan string) {
 
 	// initial message. Don't care about anything in here.
 	<-fromCl
@@ -23,7 +23,8 @@ func (r *RoutinesDefn) ComeOnline(client *model.Client, fromCl chan string, toCl
 	keyMessageString := <-fromCl
 	publicKey, err := parseUserKeyMessage(keyMessageString)
 	if err != nil {
-		panic(err.Error())
+		errCl <- err.Error()
+		return
 	}
 	client.PublicKey = publicKey
 
