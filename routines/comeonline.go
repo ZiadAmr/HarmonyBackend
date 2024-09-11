@@ -12,6 +12,10 @@ import (
 
 func (r *RoutinesDefn) ComeOnline(client *model.Client, fromCl chan string, toCl chan string, errCl chan string) {
 
+	if client.GetPublicKey() != nil {
+		errCl <- "public key already set"
+		return
+	}
 	// initial message. Don't care about anything in here.
 	<-fromCl
 

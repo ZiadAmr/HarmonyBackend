@@ -5,6 +5,7 @@
 package model
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
@@ -43,8 +44,13 @@ func (c *Client) GetPublicKey() *PublicKey {
 	return c.publicKey
 }
 
-func (c *Client) SetPublicKey(pk *PublicKey) {
+// not allowed if already set
+func (c *Client) SetPublicKey(pk *PublicKey) error {
+	if c.publicKey != nil {
+		return errors.New("public key already set")
+	}
 	c.publicKey = pk
+	return nil
 }
 
 // a loop that demultiplexes messages and forwards them to correct handlers

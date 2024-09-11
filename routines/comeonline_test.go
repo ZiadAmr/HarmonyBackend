@@ -84,6 +84,25 @@ func runSteps(steps []Step, fromCl chan string, toCl chan string, done chan stru
 	}
 }
 
+// make channels, then run steps on ComeOnline function
+func comeOnlineTestWrapper(t *testing.T, client *model.Client, steps []Step) chan string {
+	r := RoutinesDefn{}
+	FromCl := make(chan string)
+	ToCl := make(chan string)
+	ErrCl := make(chan string, 1)
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		defer close(FromCl)
+		defer close(ToCl)
+		r.ComeOnline(client, FromCl, ToCl, ErrCl)
+		done <- struct{}{}
+	}()
+	// pass test inputs in and validate outputs
+	runSteps(steps, FromCl, ToCl, done, t)
+	return ErrCl
+}
+
 func TestComeOnline(t *testing.T) {
 
 	t.Run("runs correctly on valid inputs", func(t *testing.T) {
@@ -127,29 +146,13 @@ func TestComeOnline(t *testing.T) {
 
 				// mocks
 				mockClient := &model.Client{}
-				r := RoutinesDefn{}
-				FromCl := make(chan string)
-				ToCl := make(chan string)
-				ErrCl := make(chan string, 1)
-				defer close(ErrCl)
 
-				// use to check that routine has returned/finished.
-				// struct{} means nothing - don't actually pass any value
-				done := make(chan struct{})
-
-				go func() {
-					defer close(FromCl)
-					defer close(ToCl)
-					r.ComeOnline(mockClient, FromCl, ToCl, ErrCl)
-					done <- struct{}{}
-				}()
-
-				// pass test inputs in and validate outputs
-				runSteps(tt.steps, FromCl, ToCl, done, t)
+				errCl := comeOnlineTestWrapper(t, mockClient, tt.steps)
+				defer close(errCl)
 
 				// expect no errors
 				select {
-				case err := <-ErrCl:
+				case err := <-errCl:
 					t.Errorf(err)
 					return
 				default:
@@ -159,6 +162,12 @@ func TestComeOnline(t *testing.T) {
 				if *mockClient.GetPublicKey() != tt.key {
 					t.Errorf("public key not correct: expected %s got %s", tt.key, *mockClient.GetPublicKey())
 				}
+
+				// TODO================================
+				//
+				// Also test that the hub has been updated.
+				//
+				// ====================================
 			})
 		}
 	})
@@ -195,30 +204,13 @@ func TestComeOnline(t *testing.T) {
 
 				// mocks
 				mockClient := &model.Client{}
-				r := RoutinesDefn{}
-				FromCl := make(chan string)
-				ToCl := make(chan string)
-				ErrCl := make(chan string, 1)
-				defer close(ErrCl)
 
-				// use to check that routine has returned/finished.
-				// struct{} means nothing - don't actually pass any value
-				done := make(chan struct{})
-				defer close(done)
-
-				go func() {
-					defer close(FromCl)
-					defer close(ToCl)
-					r.ComeOnline(mockClient, FromCl, ToCl, ErrCl)
-					done <- struct{}{}
-				}()
-
-				// pass test inputs in and validate outputs
-				runSteps(tt.steps, FromCl, ToCl, done, t)
+				errCl := comeOnlineTestWrapper(t, mockClient, tt.steps)
+				defer close(errCl)
 
 				// check to see if there was an error
 				select {
-				case <-ErrCl:
+				case <-errCl:
 				default:
 					t.Errorf("Expected an error.")
 				}
@@ -251,6 +243,25 @@ func TestComeOnline(t *testing.T) {
 	// 	// model.NewGenericHub[Model]()
 
 	// })
+
+	t.Run("Rejects immediately if public key is already set", func(t *testing.T) {
+
+		pk := (*model.PublicKey)([]byte("\xcf\xfd\x10\xba\xbe\xd1\x18\x2e\x7d\x8e\x6c\xff\x84\x57\x67\xee\xae\x45\x08\xaa\x13\xcd\x00\x37\x92\x33\xf5\x7f\x79\x9d\xc1\x8c\x1e\xef\xd3\x5b\x51\xdb\x36\xe3\xda\x47\x70\x73\x7a\x3f\x8f\xe7\x5e\xda\x0c\xd3\xc4\x8f\x23\xea\x70\x5f\x32\x34\xb0\x92\x9f\x9e"))
+
+		steps := []Step{}
+
+		mockClient := &model.Client{}
+		mockClient.SetPublicKey(pk)
+
+		errCl := comeOnlineTestWrapper(t, mockClient, steps)
+		defer close(errCl)
+
+		select {
+		case <-errCl:
+		default:
+			t.Errorf("Expected an error")
+		}
+	})
 
 }
 
