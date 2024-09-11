@@ -52,13 +52,20 @@ type InitiateMessage struct {
 	Initiate string
 }
 
+// Main router when a new transaction is started.
+func MasterRoutine(client *model.Client, fromCl chan string, toCl chan string) {
+	r := &RoutinesDefn{}
+	masterRoutine(r, client, fromCl, toCl)
+}
+
 // abstracted routine functions for testing/dependency injection
 type Routines interface {
-	ComeOnline()
+	ComeOnline(client *model.Client, fromCl chan string, toCl chan string, errCl chan string)
 	EstablishConnectionToPeer()
 }
 
-func MasterRoutine(r Routines, client *model.Client, fromCl chan string, toCl chan string) {
+// version with mocks for testing purposes.
+func masterRoutine(r Routines, client *model.Client, fromCl chan string, toCl chan string) {
 
 	firstMessage := <-fromCl
 	message := gojsonschema.NewStringLoader(firstMessage)
@@ -81,9 +88,12 @@ func MasterRoutine(r Routines, client *model.Client, fromCl chan string, toCl ch
 		panic(err.Error())
 	}
 
+	// do nothing with this currently
+	errCl := make(chan string, 1)
+
 	switch parsed.Initiate {
 	case "comeOnline":
-		r.ComeOnline()
+		r.ComeOnline(client, fromCl, toCl, errCl)
 	case "establishConnectionToPeer":
 		r.EstablishConnectionToPeer()
 	default:

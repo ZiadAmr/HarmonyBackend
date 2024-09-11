@@ -36,7 +36,7 @@ func testRoutine(fromCl <-chan string, toCl chan<- string) {
 
 func comeOnline(fromCl <-chan string, toCl chan<- string, c *model.Client) {
 
-	if c.PublicKey != nil {
+	if c.GetPublicKey() != nil {
 		toCl <- "You are already online"
 		return
 	}

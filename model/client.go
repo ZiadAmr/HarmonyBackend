@@ -20,9 +20,8 @@ type PublicKey [KEYLEN]byte
 type InstanceHandler func(<-chan string, chan<- string, *Client)
 
 type Client struct {
-	PublicKey *PublicKey
-
 	// PRIVATE METHODS: not accessible outside current package
+	publicKey *PublicKey
 	// lock to prevent simultaneous writes to the websocket conn
 	connWriteMessageMu sync.Mutex
 	conn               *websocket.Conn
@@ -33,11 +32,19 @@ type Client struct {
 
 func MakeClient(conn *websocket.Conn) Client {
 	return Client{
-		PublicKey: nil, // initially unset
+		publicKey: nil, // initially unset
 
 		conn:         conn,
 		transactions: make(map[[IDLEN]byte]Transaction),
 	}
+}
+
+func (c *Client) GetPublicKey() *PublicKey {
+	return c.publicKey
+}
+
+func (c *Client) SetPublicKey(pk *PublicKey) {
+	c.publicKey = pk
 }
 
 // a loop that demultiplexes messages and forwards them to correct handlers

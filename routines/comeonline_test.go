@@ -156,8 +156,8 @@ func TestComeOnline(t *testing.T) {
 				}
 
 				// check that the key has been updated as expected
-				if *mockClient.PublicKey != tt.key {
-					t.Errorf("Public key not correct: expected %s got %s", tt.key, mockClient.PublicKey)
+				if *mockClient.GetPublicKey() != tt.key {
+					t.Errorf("public key not correct: expected %s got %s", tt.key, *mockClient.GetPublicKey())
 				}
 			})
 		}
@@ -227,7 +227,29 @@ func TestComeOnline(t *testing.T) {
 	})
 
 	// t.Run("cancels transaction if public key is already signed in", func(t *testing.T) {
-	// 	// TODO
+
+	// 	steps := []Step{
+	// 		{
+	// 			"input",
+	// 			`{"initiate": "comeOnline"}`,
+	// 		},
+	// 		{
+	// 			"outputSchema",
+	// 			comeOnlineVersionResponseSchema,
+	// 		},
+	// 		{
+	// 			"input",
+	// 			`{
+	// 				"publicKey": "cffd10babed1182e7d8e6cff845767eeae4508aa13cd00379233f57f799dc18c1eefd35b51db36e3da4770737a3f8fe75eda0cd3c48f23ea705f3234b0929f9e"
+	// 			}`,
+	// 		},
+	// 		// no final step because it should fail
+	// 	}
+
+	// 	// mock hub with the client already signed in
+
+	// 	// model.NewGenericHub[Model]()
+
 	// })
 
 }

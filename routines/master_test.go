@@ -17,7 +17,7 @@ type FakeRoutinesCallTracker struct {
 	calls []string
 }
 
-func (r *FakeRoutinesCallTracker) ComeOnline( /*need to copy the exact arguments here because fml. You can't use `...interface{}`*/ ) {
+func (r *FakeRoutinesCallTracker) ComeOnline(client *model.Client, fromCl chan string, toCl chan string, errCl chan string) {
 	r.calls = append(r.calls, "ComeOnline")
 }
 func (r *FakeRoutinesCallTracker) EstablishConnectionToPeer() {
@@ -45,9 +45,8 @@ func TestMasterRoutine(t *testing.T) {
 			`this is not valid json`,
 		}
 
-		mockClient := &model.Client{
-			PublicKey: nil,
-		}
+		mockClient := &model.Client{}
+
 		for _, tt := range invalidMessages {
 			t.Run(tt, func(t *testing.T) {
 				mockTransaction := model.MakeTransaction()
@@ -57,7 +56,7 @@ func TestMasterRoutine(t *testing.T) {
 				mockTransaction.FromCl <- tt
 
 				// run function
-				MasterRoutine(&fakeRoutines, mockClient, mockTransaction.FromCl, mockTransaction.ToCl)
+				masterRoutine(&fakeRoutines, mockClient, mockTransaction.FromCl, mockTransaction.ToCl)
 
 				totalCount := len(fakeRoutines.calls)
 
@@ -90,7 +89,7 @@ func TestMasterRoutine(t *testing.T) {
 					"initiate": "` + tt.initiateKeyword + `"
 				}`
 				// run function
-				MasterRoutine(fakeRoutines, mockClient, mockTransaction.FromCl, mockTransaction.ToCl)
+				masterRoutine(fakeRoutines, mockClient, mockTransaction.FromCl, mockTransaction.ToCl)
 
 				// check only the correct routines was called
 				thisRoutineCount := countOccurrences(fakeRoutines.calls, tt.routineFunctionName)

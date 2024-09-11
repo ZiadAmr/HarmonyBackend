@@ -26,7 +26,7 @@ func (r *RoutinesDefn) ComeOnline(client *model.Client, fromCl chan string, toCl
 		errCl <- err.Error()
 		return
 	}
-	client.PublicKey = publicKey
+	client.SetPublicKey(publicKey)
 
 	toCl <- `{
 		"welcome": "welcome",
