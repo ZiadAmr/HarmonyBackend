@@ -53,19 +53,19 @@ type InitiateMessage struct {
 }
 
 // Main router when a new transaction is started.
-func MasterRoutine(client *model.Client, fromCl chan string, toCl chan string) {
+func MasterRoutine(client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string) {
 	r := &RoutinesDefn{}
-	masterRoutine(r, client, fromCl, toCl)
+	masterRoutine(r, client, hub, fromCl, toCl)
 }
 
 // abstracted routine functions for testing/dependency injection
 type Routines interface {
-	ComeOnline(client *model.Client, fromCl chan string, toCl chan string, errCl chan string)
-	EstablishConnectionToPeer()
+	ComeOnline(client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string, errCl chan string, kill chan struct{})
+	EstablishConnectionToPeer(client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string, errCl chan string, kill chan struct{})
 }
 
 // version with mocks for testing purposes.
-func masterRoutine(r Routines, client *model.Client, fromCl chan string, toCl chan string) {
+func masterRoutine(r Routines, client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string) {
 
 	firstMessage := <-fromCl
 	message := gojsonschema.NewStringLoader(firstMessage)
@@ -88,14 +88,16 @@ func masterRoutine(r Routines, client *model.Client, fromCl chan string, toCl ch
 		panic(err.Error())
 	}
 
-	// do nothing with this currently
 	errCl := make(chan string, 1)
+	defer close(errCl)
+	kill := make(chan struct{})
+	defer close(kill)
 
 	switch parsed.Initiate {
 	case "comeOnline":
-		r.ComeOnline(client, fromCl, toCl, errCl)
+		r.ComeOnline(client, hub, fromCl, toCl, errCl, kill)
 	case "establishConnectionToPeer":
-		r.EstablishConnectionToPeer()
+		r.EstablishConnectionToPeer(client, hub, fromCl, toCl, errCl, kill)
 	default:
 		panic("Unrecognized routine")
 	}
