@@ -203,23 +203,29 @@ func TestMasterRoutine(t *testing.T) {
 
 			// wait for ComeOnline to be invoked
 			<-r.called
-			// check all messages were passed to it
-			currentStep := 0
-			for msg := range r.fromCl { // loop ends when r.fromCl is closed by other goroutine.
-				expected := test[currentStep]
-				got := msg
-				if expected != got {
-					t.Errorf("Unexpected message sent to routine. Expected %s got %s", expected, got)
+
+			// compare each message send to ComeOnline to the expected.
+			// count the messages so that we know when to make ComeOnline return
+		loop:
+			for i := 0; i < len(test); i++ {
+
+				expect := test[i]
+
+				select {
+				case <-shortTimePassed():
+					t.Errorf("Timeout waiting for message %d/%d: %s", i+1, len(test), expect)
+					break loop
+				case got := <-r.fromCl:
+					if expect != got {
+						t.Errorf("Unexpected message sent to routine. Expected %s got %s", expect, got)
+					}
 				}
-				currentStep++
-			}
-			// check all messages received when channel closes
-			expected := len(test)
-			got := currentStep
-			if expected != got {
-				t.Errorf("Wrong number of messages sent to routine. Expected %d got %d", expected, got)
 			}
 
+			// tell ComeOnline mock to return
+			r.done <- struct{}{}
+
+			// signal that this goroutine has completed
 			done1 <- struct{}{}
 
 		}()
@@ -233,10 +239,6 @@ func TestMasterRoutine(t *testing.T) {
 				return
 			}
 		}
-		// tell ComeOnline to return, we've finished sending messages now.
-		// it sometimes takes some time for the last message to arrive at the ComeOnline routine, so just wait a bit before telling the routine to return
-		time.Sleep(1 * time.Millisecond)
-		r.done <- struct{}{}
 
 		// wait for goroutines to finish
 		<-done0
