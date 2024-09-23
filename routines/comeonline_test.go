@@ -6,8 +6,6 @@ import (
 	"strconv"
 	"testing"
 	"time"
-
-	"github.com/xeipuuv/gojsonschema"
 )
 
 const comeOnlineVersionResponseSchema = `{
@@ -31,63 +29,9 @@ const comeOnlineWelcomeResponseSchema = `{
   "additionalProperties": false
 }`
 
-type Step struct {
-	kind    string
-	content string
-}
-
 // timeout inside the comeonline function
 // set to high value so it can be ignored except for when being explicitly tested.
 const internalTimeout = 1 * time.Minute
-
-// feed inputs and validate output over the two channels.
-// stops when a message is sent to `done`. Requires a `done` message following the last step
-func runSteps(steps []Step, fromCl chan string, toCl chan string, done chan struct{}, t *testing.T) {
-	for _, step := range steps {
-		switch step.kind {
-		case "input":
-			select {
-			case <-shortTimePassed():
-				t.Errorf("Timeout on input:\n%s", step.content)
-				return
-			case fromCl <- step.content:
-			case <-done:
-				return
-			}
-		case "outputSchema":
-			var output string
-			select {
-			case <-shortTimePassed():
-				t.Errorf("Timeout waiting for output:\n%s", step.content)
-				return
-			case output = <-toCl:
-			case <-done:
-				return
-			}
-
-			// verify output against schema
-			schemaLoader := gojsonschema.NewStringLoader(step.content)
-			outputLoader := gojsonschema.NewStringLoader(output)
-
-			result, err := gojsonschema.Validate(schemaLoader, outputLoader)
-
-			if err != nil {
-				t.Errorf(err.Error())
-				return
-			}
-
-			if !result.Valid() {
-				t.Errorf("%s. Got:\n%s", formatJSONError(result), output)
-			}
-		}
-	}
-	select {
-	case <-shortTimePassed():
-		t.Errorf("Timeout waiting for routine to end")
-		return
-	case <-done:
-	}
-}
 
 // make channels, then run steps on ComeOnline function
 func comeOnlineTestWrapper(timeout time.Duration, t *testing.T, client *model.Client, hub *model.Hub, steps []Step) chan string {
@@ -101,11 +45,11 @@ func comeOnlineTestWrapper(timeout time.Duration, t *testing.T, client *model.Cl
 		defer close(FromCl)
 		defer close(ToCl)
 		defer close(kill)
-		comeOnlineDependencyInj(timeout, client, hub, FromCl, ToCl, ErrCl, kill)
+		comeOnlineDependencyInj(timeout, client, hub, FromCl, ToCl, ErrCl)
 		done <- struct{}{}
 	}()
 	// pass test inputs in and validate outputs
-	runSteps(steps, FromCl, ToCl, done, t)
+	RunSteps(steps, FromCl, ToCl, done, t)
 	return ErrCl
 }
 
@@ -125,21 +69,21 @@ func TestComeOnline(t *testing.T) {
 				}(),
 				steps: []Step{
 					{
-						"input",
+						step_input,
 						`{"initiate": "comeOnline"}`,
 					},
 					{
-						"outputSchema",
+						step_outputSchema,
 						comeOnlineVersionResponseSchema,
 					},
 					{
-						"input",
+						step_input,
 						`{
 							"publicKey": "cffd10babed1182e7d8e6cff845767eeae4508aa13cd00379233f57f799dc18c1eefd35b51db36e3da4770737a3f8fe75eda0cd3c48f23ea705f3234b0929f9e"
 						}`,
 					},
 					{
-						"outputSchema",
+						step_outputSchema,
 						comeOnlineWelcomeResponseSchema,
 					},
 				},
@@ -190,19 +134,19 @@ func TestComeOnline(t *testing.T) {
 			{
 				steps: []Step{
 					{
-						"input",
+						step_input,
 						`{"initiate": "comeOnline"}`,
 					},
 					{
-						"outputSchema",
+						step_outputSchema,
 						comeOnlineVersionResponseSchema,
 					},
 					{
-						"input",
+						step_input,
 						`bad input!!!!!`,
 					},
 					{
-						"outputSchema",
+						step_outputSchema,
 						comeOnlineWelcomeResponseSchema,
 					},
 				},
@@ -233,15 +177,15 @@ func TestComeOnline(t *testing.T) {
 
 		steps := []Step{
 			{
-				"input",
+				step_input,
 				`{"initiate": "comeOnline"}`,
 			},
 			{
-				"outputSchema",
+				step_outputSchema,
 				comeOnlineVersionResponseSchema,
 			},
 			{
-				"input",
+				step_input,
 				`{
 					"publicKey": "cffd10babed1182e7d8e6cff845767eeae4508aa13cd00379233f57f799dc18c1eefd35b51db36e3da4770737a3f8fe75eda0cd3c48f23ea705f3234b0929f9e"
 				}`,
@@ -307,11 +251,11 @@ func TestComeOnline(t *testing.T) {
 	t.Run("Cancels transation if the client takes too long to respond", func(t *testing.T) {
 		steps := []Step{
 			{
-				"input",
+				step_input,
 				`{"initiate": "comeOnline"}`,
 			},
 			{
-				"outputSchema",
+				step_outputSchema,
 				comeOnlineVersionResponseSchema,
 			},
 			// routine should be waiting for user input

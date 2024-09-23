@@ -58,17 +58,11 @@ func MasterRoutine(client *model.Client, hub *model.Hub, fromCl chan string, toC
 	masterRoutine(r, client, hub, fromCl, toCl)
 }
 
-// abstracted routine functions for testing/dependency injection
-type Routines interface {
-	ComeOnline(client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string, errCl chan string, kill chan struct{})
-	EstablishConnectionToPeer(client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string, errCl chan string, kill chan struct{})
-}
-
 // version with mocks for testing purposes.
 func masterRoutine(r Routines, client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string) {
 
-	firstMessage := <-fromCl
-	message := gojsonschema.NewStringLoader(firstMessage)
+	firstMsg := <-fromCl
+	message := gojsonschema.NewStringLoader(firstMsg)
 
 	// check that user message contains `"initiate":` property with a valid value
 	result, err := initiateSchema.Validate(message)
@@ -82,24 +76,62 @@ func masterRoutine(r Routines, client *model.Client, hub *model.Hub, fromCl chan
 	}
 
 	parsed := InitiateMessage{}
-	err = json.Unmarshal([]byte(firstMessage), &parsed)
+	err = json.Unmarshal([]byte(firstMsg), &parsed)
 
 	if err != nil {
 		panic(err.Error())
 	}
 
+	// don't do anything with this currently
 	errCl := make(chan string, 1)
 	defer close(errCl)
-	kill := make(chan struct{})
-	defer close(kill)
 
-	switch parsed.Initiate {
-	case "comeOnline":
-		r.ComeOnline(client, hub, fromCl, toCl, errCl, kill)
-	case "establishConnectionToPeer":
-		r.EstablishConnectionToPeer(client, hub, fromCl, toCl, errCl, kill)
-	default:
-		panic("Unrecognized routine")
+	// we need to send all incoming messages (on fromCl) to the routine.
+	// however, we've already popped the first message.
+	// we need to make a new channel so we can send the first message and forward the proceeding messages
+	fromClForward := make(chan string)
+	defer close(fromClForward)
+
+	// call correct routine
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		switch parsed.Initiate {
+		case "comeOnline":
+			r.ComeOnline(client, hub, fromClForward, toCl, errCl)
+		case "establishConnectionToPeer":
+			r.EstablishConnectionToPeer(client, hub, fromClForward, toCl, errCl)
+		default:
+			panic("Unrecognized routine")
+		}
+		done <- struct{}{}
+	}()
+
+	// forward the first message and subsequent incoming messages to the routine until `done` received
+	// horrible code, sorry about that.
+	// the problem is that both reading from `fromCl` and writing to `fromClForward` could be blocking
+	// and we also need to keep an eye on `done` at all times
+	// not currently sure how to make it any better.
+	forwardMessage := func(msg string) bool {
+		select {
+		case <-done:
+			return false // message was not sent
+		case fromClForward <- msg:
+			return true // message was sent
+		}
+	}
+	if !forwardMessage(firstMsg) {
+		return
+	}
+	for {
+		select {
+		case <-done:
+			return
+		case msg := <-fromCl:
+			if !forwardMessage(msg) {
+				return
+			}
+		}
 	}
 
 }

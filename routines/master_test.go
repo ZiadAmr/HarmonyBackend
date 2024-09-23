@@ -6,12 +6,6 @@ import (
 	"time"
 )
 
-// returns a channel that will send a message after 10ms.
-// can use this in a select statement to check for timeouts.
-func shortTimePassed() <-chan time.Time {
-	return time.After(10 * time.Millisecond)
-}
-
 // ==================================================================
 
 // fake `Routines` implementation that tracks the names of the subroutine methods that were called
@@ -19,10 +13,10 @@ type FakeRoutinesCallTracker struct {
 	calls []string
 }
 
-func (r *FakeRoutinesCallTracker) ComeOnline(client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string, errCl chan string, kill chan struct{}) {
+func (r *FakeRoutinesCallTracker) ComeOnline(client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string, errCl chan string) {
 	r.calls = append(r.calls, "ComeOnline")
 }
-func (r *FakeRoutinesCallTracker) EstablishConnectionToPeer(client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string, errCl chan string, kill chan struct{}) {
+func (r *FakeRoutinesCallTracker) EstablishConnectionToPeer(client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string, errCl chan string) {
 	r.calls = append(r.calls, "EstablishConnectionToPeer")
 }
 
@@ -30,16 +24,36 @@ func (r *FakeRoutinesCallTracker) EstablishConnectionToPeer(client *model.Client
 
 // another fake `routines` implementation used to mock the routines for various other behaviours
 type FakeRoutines struct {
+	// routine signals that it has been called
+	called chan struct{}
+	// tell the routine to return
+	done chan struct{}
+
+	client *model.Client
+	hub    *model.Hub
+	fromCl chan string
+	toCl   chan string
+	errCl  chan string
 }
 
-// raise an obvious error
-func (r *FakeRoutines) ComeOnline(client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string, errCl chan string, kill chan struct{}) {
-	<-fromCl
-	panic("testing...")
+// grab the args so we can check what the function was called with.
+func (r *FakeRoutines) ComeOnline(client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string, errCl chan string) {
+
+	r.client = client
+	r.hub = hub
+	r.fromCl = fromCl
+	r.toCl = toCl
+	r.errCl = errCl
+
+	// signal that this function has been called
+	r.called <- struct{}{}
+
+	// simulate the routine running - don't return immediately, wait until told.
+	<-r.done
 }
 
 // timeout
-func (r *FakeRoutines) EstablishConnectionToPeer(client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string, errCl chan string, kill chan struct{}) {
+func (r *FakeRoutines) EstablishConnectionToPeer(client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string, errCl chan string) {
 	time.Sleep(1000 * time.Second)
 }
 
@@ -127,6 +141,106 @@ func TestMasterRoutine(t *testing.T) {
 				}
 			})
 		}
+
+	})
+
+	t.Run("Master routine passes all user messages to handlers", func(t *testing.T) {
+
+		/*
+			In this test the ComeOnline routine handler is being mocked.
+			Instead of its normal behaviour it does the following:
+			1. Copy all its arguments (including fromCl) to a struct accessible from this test
+			2. Signal that it has been called
+			3. Wait for a signal before it returns.
+
+			The main steps of this test:
+			1. Send a sequence of messages to the master routine, the first of which should invoke ComeOnline
+			2. Once ComeOnline has been invoked, check that each message sent to ComeOnline's fromCl argument matches the message we're sending to the master routine
+			3. Tell ComeOnline to return.
+
+			The main point of this test is to ensure that the first {"initiate":"comeOnline"} message is being passed through to ComeOnline, since the master routine has to read and parse this message first before it can invoke ComeOnline.
+		*/
+
+		test := []string{
+			`{"initiate":"comeOnline"}`,
+			"message 2",
+		}
+
+		mockClient := &model.Client{}
+		mockHub := model.NewHub()
+
+		// struct with the mock ComeOnline method defined on it
+		r := &FakeRoutines{
+			// message sent to this channel when fake `ComeOnline` invoked
+			called: make(chan struct{}),
+			// send a message to this channel to make ComeOnline return.
+			done: make(chan struct{}),
+		}
+		defer close(r.called)
+		defer close(r.done)
+
+		fromCl := make(chan string)
+
+		// don't need toCl here. just for mocking
+		toCl := make(chan string)
+		defer close(toCl)
+
+		// to check that the child goroutines have finished
+		done0 := make(chan struct{}, 1)
+		done1 := make(chan struct{}, 1)
+		defer close(done0)
+		defer close(done1)
+
+		// run master routine
+		go func() {
+			defer close(fromCl)
+			masterRoutine(r, mockClient, mockHub, fromCl, toCl)
+			done0 <- struct{}{}
+		}()
+
+		// observe and verify what is being sent to the ComeOnline mock
+		go func() {
+
+			// wait for ComeOnline to be invoked
+			<-r.called
+			// check all messages were passed to it
+			currentStep := 0
+			for msg := range r.fromCl { // loop ends when r.fromCl is closed by other goroutine.
+				expected := test[currentStep]
+				got := msg
+				if expected != got {
+					t.Errorf("Unexpected message sent to routine. Expected %s got %s", expected, got)
+				}
+				currentStep++
+			}
+			// check all messages received when channel closes
+			expected := len(test)
+			got := currentStep
+			if expected != got {
+				t.Errorf("Wrong number of messages sent to routine. Expected %d got %d", expected, got)
+			}
+
+			done1 <- struct{}{}
+
+		}()
+
+		// send messages to the routine
+		for _, stepStr := range test {
+			select {
+			case fromCl <- stepStr:
+			case <-shortTimePassed():
+				t.Errorf("Timeout")
+				return
+			}
+		}
+		// tell ComeOnline to return, we've finished sending messages now.
+		// it sometimes takes some time for the last message to arrive at the ComeOnline routine, so just wait a bit before telling the routine to return
+		time.Sleep(1 * time.Millisecond)
+		r.done <- struct{}{}
+
+		// wait for goroutines to finish
+		<-done0
+		<-done1
 
 	})
 

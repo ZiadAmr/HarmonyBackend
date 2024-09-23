@@ -22,11 +22,11 @@ const ( // enum (weird syntax, don't worry about it)
 	done
 )
 
-func (r *RoutinesDefn) ComeOnline(client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string, errCl chan string, kill chan struct{}) {
-	comeOnlineDependencyInj(timeout, client, hub, fromCl, toCl, errCl, kill)
+func (r *RoutinesDefn) ComeOnline(client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string, errCl chan string) {
+	comeOnlineDependencyInj(timeout, client, hub, fromCl, toCl, errCl)
 }
 
-func comeOnlineDependencyInj(timeout time.Duration, client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string, errCl chan string, kill chan struct{}) {
+func comeOnlineDependencyInj(timeout time.Duration, client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string, errCl chan string) {
 	if client.GetPublicKey() != nil {
 		errCl <- "public key already set"
 		return
@@ -46,8 +46,6 @@ func comeOnlineDependencyInj(timeout time.Duration, client *model.Client, hub *m
 		}
 
 		select {
-		case <-kill:
-			return
 
 		case <-time.After(timeout):
 			errCl <- "timeout"
