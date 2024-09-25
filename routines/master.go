@@ -68,10 +68,11 @@ func masterRoutine(r Routines, client *model.Client, hub *model.Hub, fromCl chan
 	result, err := initiateSchema.Validate(message)
 
 	if err != nil {
-		// client send malformed json
+		toCl <- MakeJSONError("Malformed json")
 		return
 	}
 	if !result.Valid() {
+		toCl <- MakeJSONError(formatJSONError(result))
 		return
 	}
 
@@ -81,10 +82,6 @@ func masterRoutine(r Routines, client *model.Client, hub *model.Hub, fromCl chan
 	if err != nil {
 		panic(err.Error())
 	}
-
-	// don't do anything with this currently
-	errCl := make(chan string, 1)
-	defer close(errCl)
 
 	// we need to send all incoming messages (on fromCl) to the routine.
 	// however, we've already popped the first message.
@@ -98,9 +95,9 @@ func masterRoutine(r Routines, client *model.Client, hub *model.Hub, fromCl chan
 	go func() {
 		switch parsed.Initiate {
 		case "comeOnline":
-			r.ComeOnline(client, hub, fromClForward, toCl, errCl)
+			r.ComeOnline(client, hub, fromClForward, toCl)
 		case "establishConnectionToPeer":
-			r.EstablishConnectionToPeer(client, hub, fromClForward, toCl, errCl)
+			r.EstablishConnectionToPeer(client, hub, fromClForward, toCl)
 		default:
 			panic("Unrecognized routine")
 		}

@@ -18,14 +18,14 @@ const KEYLEN = 64
 type PublicKey [KEYLEN]byte
 
 // abstract function to pass all data for each instance to.
-type InstanceHandler func(<-chan string, chan<- string, *Client)
+type InstanceHandler func(fromCl chan string, toCl chan string)
 
 type Client struct {
 	// PRIVATE METHODS: not accessible outside current package
 	publicKey *PublicKey
 	// lock to prevent simultaneous writes to the websocket conn
-	connWriteMessageMu sync.Mutex
-	conn               *websocket.Conn
+	connWriteLock sync.Mutex
+	conn          *websocket.Conn
 	// map of active transactions for this client; id -> transaction
 	// should not access directly outside client.go
 	transactions map[[IDLEN]byte]Transaction
@@ -33,7 +33,7 @@ type Client struct {
 
 func MakeClient(conn *websocket.Conn) Client {
 	return Client{
-		publicKey: nil, // initially unset
+		publicKey: nil, // initially unset. When set, it implies the client has been added to the hub.
 
 		conn:         conn,
 		transactions: make(map[[IDLEN]byte]Transaction),
@@ -54,7 +54,7 @@ func (c *Client) SetPublicKey(pk *PublicKey) error {
 }
 
 // a loop that demultiplexes messages and forwards them to correct handlers
-func (c *Client) Route(handleInstance InstanceHandler) {
+func (c *Client) Route(masterRoutine InstanceHandler) {
 
 	for {
 		// read from websocket (blocking)
@@ -81,7 +81,7 @@ func (c *Client) Route(handleInstance InstanceHandler) {
 			select {
 			case t.FromCl <- string(msgBytes[IDLEN:]):
 			default:
-				t.ToCl <- "Message rejected - buffer occupied"
+				t.ToCl <- `{"error":"Message rejected - buffer occupied"}`
 			}
 			continue
 		}
@@ -95,7 +95,7 @@ func (c *Client) Route(handleInstance InstanceHandler) {
 		// start the new routine asyncronously
 		go func() {
 			defer c.DeleteTransaction(id)
-			handleInstance(tNew.FromCl, tNew.ToCl, c)
+			masterRoutine(tNew.FromCl, tNew.ToCl)
 			// routines.MasterRoutine(tNew.FromCl, tNew.ToCl, c)
 		}()
 
@@ -126,8 +126,8 @@ func (c *Client) AddTransaction(t Transaction) {
 			// write message
 			err := func() error {
 				// lock with mutex to prevent multiple messages being sent at once
-				defer c.connWriteMessageMu.Unlock()
-				c.connWriteMessageMu.Lock()
+				defer c.connWriteLock.Unlock()
+				c.connWriteLock.Lock()
 				return c.conn.WriteMessage(websocket.TextMessage, msgWithId)
 			}()
 

@@ -27,6 +27,8 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
+var hub = model.NewHub()
+
 func main() {
 
 	router := gin.Default()
@@ -40,10 +42,17 @@ func main() {
 			return
 		}
 		// defer means it executes after the function returns.
-		defer conn.Close()
+		defer func() {
+			// TODO: remove the client from the hub
+			// TODO: delete the client
+			conn.Close()
+		}()
 
-		// client := model.MakeClient(conn)
-		// client.Route(routines.MasterRoutine)
+		client := model.MakeClient(conn)
+		client.Route(func(fromCl chan string, toCl chan string) {
+			routines.MasterRoutine(&client, hub, fromCl, toCl)
+		})
+
 	})
 
 	router.GET("/test", getTest)
@@ -58,9 +67,12 @@ func main() {
 		}
 		// defer means it executes after the function returns.
 		defer conn.Close()
+		defer fmt.Println("Client has closed the websocket connection.")
 
 		client := model.MakeClient(conn)
-		client.Route(routines.MasterTestRoutine)
+		client.Route(func(fromCl, toCl chan string) {
+			routines.MasterTestRoutine(fromCl, toCl, &client)
+		})
 	})
 
 	router.Run("0.0.0.0:8080")

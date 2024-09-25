@@ -13,10 +13,10 @@ type FakeRoutinesCallTracker struct {
 	calls []string
 }
 
-func (r *FakeRoutinesCallTracker) ComeOnline(client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string, errCl chan string) {
+func (r *FakeRoutinesCallTracker) ComeOnline(client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string) {
 	r.calls = append(r.calls, "ComeOnline")
 }
-func (r *FakeRoutinesCallTracker) EstablishConnectionToPeer(client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string, errCl chan string) {
+func (r *FakeRoutinesCallTracker) EstablishConnectionToPeer(client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string) {
 	r.calls = append(r.calls, "EstablishConnectionToPeer")
 }
 
@@ -33,17 +33,15 @@ type FakeRoutines struct {
 	hub    *model.Hub
 	fromCl chan string
 	toCl   chan string
-	errCl  chan string
 }
 
 // grab the args so we can check what the function was called with.
-func (r *FakeRoutines) ComeOnline(client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string, errCl chan string) {
+func (r *FakeRoutines) ComeOnline(client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string) {
 
 	r.client = client
 	r.hub = hub
 	r.fromCl = fromCl
 	r.toCl = toCl
-	r.errCl = errCl
 
 	// signal that this function has been called
 	r.called <- struct{}{}
@@ -53,26 +51,15 @@ func (r *FakeRoutines) ComeOnline(client *model.Client, hub *model.Hub, fromCl c
 }
 
 // timeout
-func (r *FakeRoutines) EstablishConnectionToPeer(client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string, errCl chan string) {
+func (r *FakeRoutines) EstablishConnectionToPeer(client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string) {
 	time.Sleep(1000 * time.Second)
 }
 
 //===================================================================
 
-// count number of occurrences of an element in a slice
-func countOccurrences[K comparable](slice []K, el K) int {
-	count := 0
-	for _, item := range slice {
-		if item == el {
-			count++
-		}
-	}
-	return count
-}
-
 func TestMasterRoutine(t *testing.T) {
 
-	t.Run("Master routine calls no routines when schema does not match", func(t *testing.T) {
+	t.Run("Master routine calls no routines and returns error when schema does not match", func(t *testing.T) {
 
 		invalidMessages := []string{
 			`{"initiate": "thisIsARoutineThatDoesNotExist"}`,
@@ -91,8 +78,27 @@ func TestMasterRoutine(t *testing.T) {
 				// send non-matching json
 				mockTransaction.FromCl <- tt
 
+				done := make(chan struct{})
 				// run function
-				masterRoutine(&fakeRoutines, mockClient, mockHub, mockTransaction.FromCl, mockTransaction.ToCl)
+				go func() {
+					masterRoutine(&fakeRoutines, mockClient, mockHub, mockTransaction.FromCl, mockTransaction.ToCl)
+					done <- struct{}{}
+				}()
+
+				select {
+				case <-shortTimePassed():
+					t.Errorf("Expected an error message")
+				case msg := <-mockTransaction.ToCl:
+					if !isErrorMessage(msg) {
+						t.Errorf("Expected an error message. Got %s", msg)
+					}
+				}
+
+				select {
+				case <-shortTimePassed():
+					t.Errorf("Timeout waiting for master function to return")
+				case <-done:
+				}
 
 				totalCount := len(fakeRoutines.calls)
 
@@ -164,6 +170,7 @@ func TestMasterRoutine(t *testing.T) {
 		test := []string{
 			`{"initiate":"comeOnline"}`,
 			"message 2",
+			"message 3",
 		}
 
 		mockClient := &model.Client{}
@@ -195,6 +202,8 @@ func TestMasterRoutine(t *testing.T) {
 		go func() {
 			defer close(fromCl)
 			masterRoutine(r, mockClient, mockHub, fromCl, toCl)
+
+			// signal that this goroutine has completed
 			done0 <- struct{}{}
 		}()
 
@@ -230,7 +239,7 @@ func TestMasterRoutine(t *testing.T) {
 
 		}()
 
-		// send messages to the routine
+		// send messages to the master routine
 		for _, stepStr := range test {
 			select {
 			case fromCl <- stepStr:
@@ -245,71 +254,6 @@ func TestMasterRoutine(t *testing.T) {
 		<-done1
 
 	})
-
-	// t.Run("Master routine kills routines if they hang for too long", func(t *testing.T) {
-	// 	mockClient := &model.Client{}
-	// 	mockHub := model.NewHub()
-
-	// 	mockTransaction := model.MakeTransaction()
-	// 	// this implementation of comeonline routine just hangs for a while.
-	// 	fakeRoutines := &FakeRoutines{}
-
-	// 	// inject this value for routine timeouts instead of the actual value
-	// 	timeout := 10 * time.Millisecond
-
-	// 	done := make(chan struct{})
-
-	// 	go func() {
-	// 		masterRoutine(fakeRoutines, timeout, mockClient, mockHub, mockTransaction.FromCl, mockTransaction.ToCl)
-	// 		done <- struct{}{}
-	// 	}()
-
-	// 	// initiate the fake comeOnline hanging routine
-	// 	mockTransaction.FromCl <- `{
-	// 		"initiate": "establishConnectionToPeer"
-	// 	}`
-
-	// 	// expect a terminate:cancel to be sent from the master routine.
-
-	// 	var output string
-	// 	select {
-	// 	case <-time.After(timeout * 2):
-	// 		t.Errorf("No message sent from master routine")
-	// 		return
-	// 	case output = <-mockTransaction.ToCl:
-	// 	}
-
-	// 	outputLoader := gojsonschema.NewStringLoader(output)
-	// 	schemaLoader := gojsonschema.NewStringLoader(`{
-	// 		"$schema": "https://json-schema.org/draft/2020-12/schema",
-	// 		"type": "object",
-	// 		"properties": {
-	// 			"terminate": {
-	// 			"const":"cancel",
-	// 			}
-	// 		},
-	// 		"required": ["terminate"],
-	// 	}`)
-
-	// 	result, err := gojsonschema.Validate(schemaLoader, outputLoader)
-
-	// 	if err != nil {
-	// 		t.Errorf(err.Error())
-	// 		return
-	// 	}
-	// 	if !result.Valid() {
-	// 		t.Errorf("output did not match schema. Output: %s", output)
-	// 	}
-
-	// 	// check that the routine ended
-	// 	select {
-	// 	case <-time.After(timeout * 2):
-	// 		t.Errorf("master routine didn't return")
-	// 		return
-	// 	case <-done:
-	// 	}
-
-	// })
 
 	// t.Run("Master routine kills routines if user sends terminate:cancel property", func(t *testing.T) {
 	// 	// TODO
