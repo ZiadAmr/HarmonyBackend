@@ -1,6 +1,0 @@
-Only the goroutine that is writing to a channel should be the one to close it.
-Need to change the code so that toCl is closed by the routine function and not in DeleteTransaction().
-
-can't just change it so that it is closed in comeOnline or the master routine because we are also writing error messages to it in the client Route function
-maybe could make a global stream or something idk
-or have multiple channels for each goroutine that writes to it https://stackoverflow.com/questions/19992334/how-to-listen-to-n-channels-dynamic-select-statement

@@ -8,7 +8,6 @@ type RoutineOutput struct {
 	// whether the routine has completed and should no longer accept new messages
 	Done bool
 	// max time to wait for next user input.
-	// currently unused
 	TimeoutDuration time.Duration
 	TimeoutEnabled  bool
 }
