@@ -215,33 +215,6 @@ func TestComeOnline(t *testing.T) {
 
 	})
 
-	// t.Run("Cancels transation if the client takes too long to respond", func(t *testing.T) {
-	// 	steps := []Step{
-	// 		{
-	// 			step_input,
-	// 			`{"initiate": "comeOnline"}`,
-	// 		},
-	// 		{
-	// 			step_outputSchema,
-	// 			comeOnlineVersionResponseSchema,
-	// 		},
-	// 		// routine should be waiting for user input
-
-	// 	}
-
-	// 	mockClient := &model.Client{}
-	// 	mockHub := model.NewHub()
-
-	// 	errStr := comeOnlineTestWrapper(1*time.Microsecond, t, mockClient, mockHub, steps)
-
-	// 	// check to see if there was an error
-	// 	if errStr == nil {
-	// 		t.Errorf("expected an error")
-	// 		return
-	// 	}
-
-	// })
-
 	t.Run(`Return immediately if receiving {"terminate","cancel"} from client`, func(t *testing.T) {
 
 		tests := [][]Step{
