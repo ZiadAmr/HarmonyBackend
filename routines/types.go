@@ -10,3 +10,10 @@ type Routines interface {
 
 // Concrete routine definitions. Implements Routines. Methods defined elsewhere
 type RoutinesDefn struct{}
+
+type RoutineConstructor func(*model.Client, *model.Hub) model.Routine
+
+type RoutineConstructors struct {
+	NewComeOnline                RoutineConstructor
+	NewEstablishConnectionToPeer RoutineConstructor
+}

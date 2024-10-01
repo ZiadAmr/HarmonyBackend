@@ -10,9 +10,10 @@ const IDLEN = 16
 
 // instance of a routine
 type Transaction struct {
-	Id     [IDLEN]byte
-	FromCl chan string
-	ToCl   chan string
+	Id      [IDLEN]byte
+	Routine Routine
+	fromCl  chan string
+	kill    chan struct{}
 }
 
 // genreate a random transaction id
@@ -28,17 +29,14 @@ func NewId() [IDLEN]byte {
 
 }
 
-func MakeTransaction() Transaction {
-	return MakeTransactionWithId(NewId())
-}
+// func MakeTransaction() Transaction {
+// 	return MakeTransactionWithId(NewId())
+// }
 
-func MakeTransactionWithId(id [IDLEN]byte) Transaction {
+// func MakeTransactionWithId(id [IDLEN]byte) Transaction {
 
-	fromCl := make(chan string, 1)
-	toCl := make(chan string)
-	return Transaction{
-		Id:     id,
-		FromCl: fromCl,
-		ToCl:   toCl,
-	}
-}
+// 	return Transaction{
+// 		Id:     id,
+// 		fromCl: make(chan string, 1),
+// 	}
+// }

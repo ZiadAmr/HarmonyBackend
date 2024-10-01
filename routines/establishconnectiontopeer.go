@@ -2,6 +2,13 @@ package routines
 
 import "harmony/backend/model"
 
-func (r *RoutinesDefn) EstablishConnectionToPeer(client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string) {
+type EstablishConnectionToPeer struct {
+}
 
+func newEstablishConnectionToPeer(client *model.Client, hub *model.Hub) model.Routine {
+	return &EstablishConnectionToPeer{}
+}
+
+func (r *EstablishConnectionToPeer) Next(msg string) model.RoutineOutput {
+	return model.MakeRoutineOutput(true)
 }
