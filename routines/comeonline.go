@@ -1,5 +1,7 @@
 package routines
 
+// todo AT MOST ONE instance of this routine for each user should be running at any time.
+
 import (
 	"encoding/hex"
 	"encoding/json"
@@ -13,110 +15,67 @@ import (
 
 const timeout = 30 * time.Second
 
-type step int
-
-const ( // enum (weird syntax, don't worry about it)
-	comeonline_failed step = iota
-	comeonline_hello
-	comeonline_recvPublicKey
-	comeonline_done
-)
-
-func (r *RoutinesDefn) ComeOnline(client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string) {
-	comeOnlineDependencyInj(timeout, client, hub, fromCl, toCl)
-}
-
-func comeOnlineDependencyInj(timeout time.Duration, client *model.Client, hub *model.Hub, fromCl chan string, toCl chan string) {
-	if client.GetPublicKey() != nil {
-		toCl <- MakeJSONError("public key already set")
-		return
-	}
-
-	nextStep := comeonline_hello
-	h := comeOnlineRoutineHandler{
-		client: client,
-		hub:    hub,
-		toCl:   toCl,
-	}
-
-	for {
-		if nextStep == comeonline_done || nextStep == comeonline_failed {
-			return
-		}
-
-		select {
-
-		case <-time.After(timeout):
-			toCl <- MakeJSONError("timeout")
-			return
-
-		case msg := <-fromCl:
-			if isClientCancelMsg(msg) /*{"terminate":"cancel"}*/ {
-				return
-			}
-			if msg == "" {
-				// channel closed
-				return
-			}
-			// recieved a message from the client. Initiate the next step
-			var err error
-			nextStep, err = h.step(nextStep, msg)
-			if err != nil {
-				toCl <- MakeJSONError(err.Error())
-				return
-			}
-		}
-
-	}
-}
-
-type comeOnlineRoutineHandler struct {
+type ComeOnline struct {
 	client *model.Client
 	hub    *model.Hub
-	toCl   chan string
-	// could also store other variables we want to be accessible from the steps in here.
+	step   comeOnlineStep
 }
 
-func (h comeOnlineRoutineHandler) step(currentStep step, msg string) (step, error) {
-	switch currentStep {
-	case comeonline_hello:
-		return h.helloStep()
-	case comeonline_recvPublicKey:
-		return h.recvPublicKeyStep(msg)
+type comeOnlineStep int
+
+const ( // enum
+	comeOnlineStep_hello comeOnlineStep = iota
+	comeOnlineStep_recvPublicKey
+)
+
+// constructor
+func newComeOnline(client *model.Client, hub *model.Hub) model.Routine {
+	return &ComeOnline{
+		client: client,
+		hub:    hub,
+		step:   comeOnlineStep_hello,
 	}
-	panic("step not defined?")
 }
 
-func (h comeOnlineRoutineHandler) helloStep() (step, error) {
+func (c *ComeOnline) Next(msg string) model.RoutineOutput {
 
-	// don't care about contents of the initial message msg
+	if isClientCancelMsg(msg) {
+		return makeCOOutput(true)
+	}
 
-	h.toCl <- `{"version": "` + VERSION + `"}`
-
-	return comeonline_recvPublicKey, nil
+	switch c.step {
+	case comeOnlineStep_hello:
+		return c.hello()
+	case comeOnlineStep_recvPublicKey:
+		return c.recvPublicKey(msg)
+	}
+	panic("Unrecognized step")
 }
 
-func (h comeOnlineRoutineHandler) recvPublicKeyStep(keyMessageString string) (step, error) {
+// send version number
+func (c *ComeOnline) hello() model.RoutineOutput {
 
-	publicKey, err := parseUserKeyMessage(keyMessageString)
+	if c.client.GetPublicKey() != nil {
+		return makeCOOutput(true, MakeJSONError("Public key already set"))
+	}
+	// set next step
+	c.step = comeOnlineStep_recvPublicKey
+	// msgs to return to user
+	return makeCOOutput(false, `{"version":"`+VERSION+`"}`)
+}
+
+func (c *ComeOnline) recvPublicKey(msg string) model.RoutineOutput {
+	key, err := parseUserKeyMessage(msg)
 	if err != nil {
-		return comeonline_failed, err
+		return makeCOOutput(true, MakeJSONError(err.Error()))
 	}
-
-	// check that the user is not already signed in on another client
-	_, alreadySignedIn := h.hub.GetClient(*publicKey)
-
-	if alreadySignedIn {
-		return comeonline_failed, errors.New("another client already signed in with this public key")
+	_, clientWithKeyAlreadyExists := c.hub.GetClient(*key)
+	if clientWithKeyAlreadyExists {
+		return makeCOOutput(true, MakeJSONError("Another client already signed in with this public key"))
 	}
-
-	h.client.SetPublicKey(publicKey)
-	h.hub.AddClient(h.client)
-
-	h.toCl <- `{"welcome": "welcome","terminate": "done"}`
-
-	return comeonline_done, nil
-
+	c.client.SetPublicKey(key)
+	c.hub.AddClient(c.client)
+	return makeCOOutput(true, `{"welcome":"welcome","terminate":"done"}`)
 }
 
 var userKeyMessageSchema = func() *gojsonschema.Schema {
@@ -165,4 +124,12 @@ func parseUserKeyMessage(keyMessageString string) (*model.PublicKey, error) {
 	}
 
 	return (*model.PublicKey)(key), nil
+}
+
+// make ComeOnline output
+func makeCOOutput(done bool, msgs ...string) model.RoutineOutput {
+	ro := model.MakeRoutineOutput(done, msgs...)
+	ro.TimeoutEnabled = true
+	ro.TimeoutDuration = timeout
+	return ro
 }

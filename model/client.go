@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -20,18 +21,30 @@ type PublicKey [KEYLEN]byte
 // abstract function to pass all data for each instance to.
 type InstanceHandler func(fromCl chan string, toCl chan string)
 
+// *websocket.Conn, but only the methods that are being used here
+// So that *websocket.Conn can be mocked.
+type Conn interface {
+	ReadMessage() (messageType int, p []byte, err error)
+	WriteMessage(messageType int, data []byte) error
+}
+
 type Client struct {
 	// PRIVATE METHODS: not accessible outside current package
 	publicKey *PublicKey
 	// lock to prevent simultaneous writes to the websocket conn
+	conn          Conn
 	connWriteLock sync.Mutex
-	conn          *websocket.Conn
 	// map of active transactions for this client; id -> transaction
 	// should not access directly outside client.go
-	transactions map[[IDLEN]byte]Transaction
+	transactions           map[[IDLEN]byte]Transaction
+	modifyTransactionsLock sync.Mutex
+	// channels that should be closed byt the main loop
+	// these channels cause transaction goroutines to return when closed.
+	danglingChannels           []chan string
+	modifyDanglingChannelsLock sync.Mutex
 }
 
-func MakeClient(conn *websocket.Conn) Client {
+func MakeClient(conn Conn) Client {
 	return Client{
 		publicKey: nil, // initially unset. When set, it implies the client has been added to the hub.
 
@@ -54,13 +67,16 @@ func (c *Client) SetPublicKey(pk *PublicKey) error {
 }
 
 // a loop that demultiplexes messages and forwards them to correct handlers
-func (c *Client) Route(masterRoutine InstanceHandler) {
+func (c *Client) Route(masterRoutineConstructor func() Routine) {
 
 	for {
+
+		// check to see if there are any dangling channels that were created in this goroutine which need to be closed
+		c.closeDanglingChannels()
+
 		// read from websocket (blocking)
 		_, msgBytes, err := c.conn.ReadMessage()
 		if err != nil {
-			fmt.Println("Error reading message: " + err.Error())
 			break
 		}
 
@@ -77,37 +93,40 @@ func (c *Client) Route(masterRoutine InstanceHandler) {
 		t, exists := c.transactions[id]
 		// if so, pass the message to that transaction
 		if exists {
-			// if t.FromCl is blocking (buffer is full) then reject the incoming message
 			select {
-			case t.FromCl <- string(msgBytes[IDLEN:]):
+			case t.fromCl <- string(msgBytes[IDLEN:]):
 			default:
-				t.ToCl <- `{"error":"Message rejected - buffer occupied"}`
+				c.writeTransactionMessage(t.Id, `{"error":"Buffer is occupied, message ignored"}`)
 			}
 			continue
 		}
 
 		// otherwise create a new transaction
-		tNew := MakeTransactionWithId(id)
+		tNew := Transaction{
+			fromCl:  make(chan string, 1),
+			kill:    make(chan struct{}),
+			Id:      id,
+			Routine: masterRoutineConstructor(),
+		}
 
 		// add to transaction list and add listeners
 		c.AddTransaction(tNew)
 
-		// start the new routine asyncronously
-		go func() {
-			defer c.DeleteTransaction(id)
-			masterRoutine(tNew.FromCl, tNew.ToCl)
-			// routines.MasterRoutine(tNew.FromCl, tNew.ToCl, c)
-		}()
+		tNew.fromCl <- string(msgBytes[IDLEN:])
 
-		// send the initiating message to the routine
-		// it should be waiting.
-		tNew.FromCl <- string(msgBytes[IDLEN:])
+		// route
+		go c.routeTransaction(tNew)
 
 	}
+
+	// breaks out here when the websocket is closed.
+	c.close()
+
 }
 
 // Add a new transaction to the client.
 // The channels in the transaction will be assosiated with the provided id in the client.
+// Threadsafe.
 func (c *Client) AddTransaction(t Transaction) {
 
 	_, idExists := c.transactions[t.Id]
@@ -115,46 +134,130 @@ func (c *Client) AddTransaction(t Transaction) {
 		panic("Attempted to registed a transaction id that already exists!")
 	}
 
-	c.transactions[t.Id] = t
+	func() {
+		defer c.modifyTransactionsLock.Unlock()
+		c.modifyTransactionsLock.Lock()
+		c.transactions[t.Id] = t
+	}()
+}
 
-	// concurrent function to forward messages on ToCl to the websocket
-	go func() {
-		for msg := range t.ToCl {
-			// prepend the transaction id
-			msgWithId := append(t.Id[:], []byte(msg)...)
+// threadsafe
+func (c *Client) DeleteTransaction(id [IDLEN]byte) error {
 
-			// write message
-			err := func() error {
-				// lock with mutex to prevent multiple messages being sent at once
-				defer c.connWriteLock.Unlock()
-				c.connWriteLock.Lock()
-				return c.conn.WriteMessage(websocket.TextMessage, msgWithId)
-			}()
+	var t Transaction
 
-			if err != nil {
-				fmt.Println("Error writing message: " + err.Error())
-				break
-			}
+	// delete the transaction, if it exists
+	err := func() error {
+		defer c.modifyTransactionsLock.Unlock()
+		c.modifyTransactionsLock.Lock()
 
+		t0, exists := c.transactions[id]
+		if !exists {
+			return errors.New("Transaction does not exist")
 		}
+		t = t0
+		delete(c.transactions, id)
+		return nil
+	}()
+	if err != nil {
+		return err
+	}
+
+	// moves the channel to the dangling channels list.
+	// mutex section above ensures that sinch we reach here, this is the only time that the specified transaction is being deleted
+	// therefore we don't need to worry about duplicate channels ending up in the dangling channels list.
+	func() {
+		defer c.modifyDanglingChannelsLock.Unlock()
+		c.modifyDanglingChannelsLock.Lock()
+		c.danglingChannels = append(c.danglingChannels, t.fromCl)
+
 	}()
 
-	// transaction messages sent to the websocket are forwarded automatically if c.route has been called.
+	return nil
+}
+
+func (c *Client) close() {
+	// delete all remaining transactions.
+	// they might also try to delete themselves in their own goroutines,
+	// but DeleteTransaction has synchronization to ensure that the transactions get deleted at most once.
+	for tid := range c.transactions {
+		c.DeleteTransaction(tid)
+	}
+	c.closeDanglingChannels()
+}
+
+// should run in a separate goroutine to the main Route() loop.
+// this can ONLY be terminated by closing fromClMsg.
+func (c *Client) routeTransaction(t Transaction) {
+
+	done := false
+	var timeoutTimer <-chan time.Time
+
+	for {
+		select {
+		case <-timeoutTimer:
+			c.writeTransactionMessage(t.Id, `{"terminate":"cancel","error":"timeout"}`)
+			done = true
+			c.DeleteTransaction(t.Id)
+
+		case fromClMsg, ok := <-t.fromCl:
+			if !ok {
+				// terminate this fn only when fromCl closes.
+				return
+			}
+			if done {
+				// the routine has ended and the Transaction struct has been deleted,
+				// but the main Route loop hasn't figured that out yet and is continuing to send us messages.
+				// the next time Route gets to the top of its loop it should close fromClMsg.
+				// ignore message, and keep waiting for fromClMsg to be closed.
+				c.writeTransactionMessage(t.Id, `{"error":"transaction has terminated"}`)
+				continue
+			}
+
+			stepOutput := t.Routine.Next(fromClMsg)
+			for _, toClMsg := range stepOutput.Msgs {
+				// write message
+				err := c.writeTransactionMessage(t.Id, toClMsg)
+				if err != nil {
+					fmt.Printf("Error writing message: " + err.Error())
+				}
+			}
+
+			// set the timeout
+			if stepOutput.TimeoutEnabled {
+				timeoutTimer = time.After(stepOutput.TimeoutDuration)
+			}
+
+			done = stepOutput.Done
+			if stepOutput.Done {
+				c.DeleteTransaction(t.Id) // this also adds t.fromCl to the dangling channels list
+			}
+		}
+
+	}
 
 }
 
-func (c *Client) DeleteTransaction(id [IDLEN]byte) {
+// should only be called from the goroutine containing the main loop, as it closes channels created in the main loop
+// this causes the transaction goroutines to terminate.
+func (c *Client) closeDanglingChannels() {
+	defer c.modifyDanglingChannelsLock.Unlock()
+	c.modifyDanglingChannelsLock.Lock()
 
-	// might have to wait a bit for the last message to be sent.
-	// dunno I saw that online
-	// time.Sleep(time.Second)
+	if len(c.danglingChannels) > 0 {
 
-	t, exists := c.transactions[id]
-	if !exists {
-		panic("Attempted to deregister a transaction id that does not exist.")
+		for _, ch := range c.danglingChannels {
+			close(ch)
+		}
+		c.danglingChannels = make([]chan string, 0)
 	}
+}
 
-	close(t.FromCl)
-	close(t.ToCl)
-	delete(c.transactions, id)
+// thread safe
+func (c *Client) writeTransactionMessage(transactionID [IDLEN]byte, msg string) error {
+	// concatenate transactionID and msg
+	msgWithId := append(transactionID[:], []byte(msg)...)
+	defer c.connWriteLock.Unlock()
+	c.connWriteLock.Lock()
+	return c.conn.WriteMessage(websocket.TextMessage, msgWithId)
 }

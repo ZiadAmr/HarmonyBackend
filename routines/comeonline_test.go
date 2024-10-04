@@ -5,7 +5,6 @@ import (
 	"harmony/backend/model"
 	"strconv"
 	"testing"
-	"time"
 )
 
 const comeOnlineVersionResponseSchema = `{
@@ -28,26 +27,6 @@ const comeOnlineWelcomeResponseSchema = `{
   "required": ["welcome", "terminate"],
   "additionalProperties": false
 }`
-
-// timeout inside the comeonline function
-// set to high value so it can be ignored except for when being explicitly tested.
-const internalTimeout = 1 * time.Minute
-
-// make channels, then run steps on ComeOnline function
-func comeOnlineTestWrapper(timeout time.Duration, t *testing.T, client *model.Client, hub *model.Hub, steps []Step) *string {
-	FromCl := make(chan string)
-	ToCl := make(chan string)
-	done := make(chan struct{})
-	go func() {
-		defer close(FromCl)
-		defer close(ToCl)
-		defer close(done)
-		comeOnlineDependencyInj(timeout, client, hub, FromCl, ToCl)
-		done <- struct{}{}
-	}()
-	// pass test inputs in and validate outputs
-	return RunSteps(steps, FromCl, ToCl, done, t)
-}
 
 func TestComeOnline(t *testing.T) {
 
@@ -94,16 +73,14 @@ func TestComeOnline(t *testing.T) {
 				mockClient := &model.Client{}
 				mockHub := model.NewHub()
 
-				errStr := comeOnlineTestWrapper(internalTimeout, t, mockClient, mockHub, tt.steps)
+				co := newComeOnline(mockClient, mockHub)
 
-				// expect no errors
-				if errStr != nil {
-					t.Errorf(*errStr)
-					return
-				}
+				testRunner(t, co, tt.steps)
 
 				// check that the key has been updated as expected
-				if *mockClient.GetPublicKey() != tt.key {
+				if mockClient.GetPublicKey() == nil {
+					t.Errorf("Expected public key of client not to be nil")
+				} else if *mockClient.GetPublicKey() != tt.key {
 					t.Errorf("public key not correct: expected %s got %s", tt.key, *mockClient.GetPublicKey())
 				}
 
@@ -111,8 +88,7 @@ func TestComeOnline(t *testing.T) {
 				hubClient, exists := mockHub.GetClient(tt.key)
 				if !exists {
 					t.Errorf("Expected client to be added to the hub")
-				}
-				if hubClient != mockClient {
+				} else if hubClient != mockClient {
 					t.Errorf("Expected client pointer to be added to the hub. Expected %v got %v", mockClient, hubClient)
 				}
 			})
@@ -140,7 +116,7 @@ func TestComeOnline(t *testing.T) {
 					},
 					{
 						step_outputSchema,
-						comeOnlineWelcomeResponseSchema,
+						errorSchemaString,
 					},
 				},
 			},
@@ -153,14 +129,9 @@ func TestComeOnline(t *testing.T) {
 				mockClient := &model.Client{}
 				mockHub := model.NewHub()
 
-				errStr := comeOnlineTestWrapper(internalTimeout, t, mockClient, mockHub, tt.steps)
+				co := newComeOnline(mockClient, mockHub)
 
-				// check to see if there was an error
-				if errStr == nil {
-					t.Errorf("expected an error")
-					return
-				}
-
+				testRunner(t, co, tt.steps)
 			})
 		}
 	})
@@ -182,7 +153,10 @@ func TestComeOnline(t *testing.T) {
 					"publicKey": "cffd10babed1182e7d8e6cff845767eeae4508aa13cd00379233f57f799dc18c1eefd35b51db36e3da4770737a3f8fe75eda0cd3c48f23ea705f3234b0929f9e"
 				}`,
 			},
-			// no final step because it should fail
+			{
+				step_outputSchema,
+				errorSchemaString,
+			},
 		}
 
 		// mock hub with the client already signed in
@@ -197,13 +171,9 @@ func TestComeOnline(t *testing.T) {
 		// client that tries to use a public key that is already signed in
 		client1 := &model.Client{}
 
-		errStr := comeOnlineTestWrapper(internalTimeout, t, client1, hub, steps)
+		co := newComeOnline(client1, hub)
 
-		// check to see if there was an error
-		if errStr == nil {
-			t.Errorf("expected an error")
-			return
-		}
+		testRunner(t, co, steps)
 
 		// client id was not updated
 		if client1.GetPublicKey() != nil {
@@ -223,109 +193,61 @@ func TestComeOnline(t *testing.T) {
 
 		pk := (*model.PublicKey)([]byte("\xcf\xfd\x10\xba\xbe\xd1\x18\x2e\x7d\x8e\x6c\xff\x84\x57\x67\xee\xae\x45\x08\xaa\x13\xcd\x00\x37\x92\x33\xf5\x7f\x79\x9d\xc1\x8c\x1e\xef\xd3\x5b\x51\xdb\x36\xe3\xda\x47\x70\x73\x7a\x3f\x8f\xe7\x5e\xda\x0c\xd3\xc4\x8f\x23\xea\x70\x5f\x32\x34\xb0\x92\x9f\x9e"))
 
-		steps := []Step{}
+		steps := []Step{
+			{
+				step_input,
+				`{"initiate": "comeOnline"}`,
+			},
+			{
+				step_outputSchema,
+				errorSchemaString,
+			},
+		}
 
 		mockClient := &model.Client{}
 		mockClient.SetPublicKey(pk)
 
 		mockHub := model.NewHub()
 
-		errStr := comeOnlineTestWrapper(internalTimeout, t, mockClient, mockHub, steps)
+		co := newComeOnline(mockClient, mockHub)
 
-		// check to see if there was an error
-		if errStr == nil {
-			t.Errorf("expected an error")
-			return
-		}
-
-	})
-
-	t.Run("Cancels transation if the client takes too long to respond", func(t *testing.T) {
-		steps := []Step{
-			{
-				step_input,
-				`{"initiate": "comeOnline"}`,
-			},
-			{
-				step_outputSchema,
-				comeOnlineVersionResponseSchema,
-			},
-			// routine should be waiting for user input
-
-		}
-
-		mockClient := &model.Client{}
-		mockHub := model.NewHub()
-
-		errStr := comeOnlineTestWrapper(1*time.Microsecond, t, mockClient, mockHub, steps)
-
-		// check to see if there was an error
-		if errStr == nil {
-			t.Errorf("expected an error")
-			return
-		}
+		testRunner(t, co, steps)
 
 	})
 
 	t.Run(`Return immediately if receiving {"terminate","cancel"} from client`, func(t *testing.T) {
 
-		steps := []Step{
+		tests := [][]Step{
 			{
-				step_input,
-				`{"initiate": "comeOnline"}`,
+				{
+					step_input,
+					`{"initiate": "comeOnline", "terminate":"cancel"}`,
+				},
 			},
 			{
-				step_outputSchema,
-				comeOnlineVersionResponseSchema,
-			},
-			{
-				step_input,
-				`{"terminate":"cancel"}`,
-			},
-			{
-				step_input,
-				`}}{}&*%£*$^£%*^"}}}{complete garbage message that should not cause an error because it is not read`,
+				{
+					step_input,
+					`{"initiate": "comeOnline"}`,
+				},
+				{
+					step_outputSchema,
+					comeOnlineVersionResponseSchema,
+				},
+				{
+					step_input,
+					`{"terminate":"cancel"}`,
+				},
 			},
 		}
 
-		mockClient := &model.Client{}
-		mockHub := model.NewHub()
-
-		errStr := comeOnlineTestWrapper(internalTimeout, t, mockClient, mockHub, steps)
-
-		// check to see if there was an error
-		if errStr != nil {
-			t.Errorf("Expected no error. Got: %s", *errStr)
-			return
+		for i, tt := range tests {
+			t.Run(strconv.Itoa(i), func(t *testing.T) {
+				mockClient := &model.Client{}
+				mockHub := model.NewHub()
+				co := newComeOnline(mockClient, mockHub)
+				testRunner(t, co, tt)
+			})
 		}
-
-	})
-
-	t.Run("return immediately if fromCl is closed", func(t *testing.T) {
-
-		mockClient := &model.Client{}
-		mockHub := model.NewHub()
-		fromCl := make(chan string)
-		toCl := make(chan string)
-
-		done := make(chan struct{})
-
-		go func() {
-			comeOnlineDependencyInj(internalTimeout, mockClient, mockHub, fromCl, toCl)
-			done <- struct{}{}
-		}()
-
-		fromCl <- `{"initiate":"comeOnline"}`
-		<-toCl
-
-		close(fromCl)
-		// check that comeOnlineDependencyInj has returned.
-		select {
-		case <-shortTimePassed():
-			t.Errorf("Timeout waiting for function to return")
-		case <-done:
-		}
-
 	})
 
 }

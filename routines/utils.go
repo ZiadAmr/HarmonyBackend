@@ -2,6 +2,7 @@ package routines
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/xeipuuv/gojsonschema"
 )
@@ -40,8 +41,7 @@ var clientCancelSchema = func() *gojsonschema.Schema {
              	"type": "string" 
             }
 		},
-		"required": ["terminate"],
-		"additionalProperties": false
+		"required": ["terminate"]
 	}
 	`)
 	schema, _ := gojsonschema.NewSchema(schemaLoader)
@@ -53,4 +53,18 @@ func isClientCancelMsg(msg string) bool {
 	msgLoader := gojsonschema.NewStringLoader(msg)
 	result, err := clientCancelSchema.Validate(msgLoader)
 	return err == nil && result.Valid()
+}
+
+// helper function to convert json schema parse error to string
+func formatJSONError(result *gojsonschema.Result) string {
+	var errorStrings []string
+	for _, error := range result.Errors() {
+		errorStrings = append(errorStrings, error.Description())
+	}
+	return strings.Join(errorStrings, ", ")
+}
+
+var routineContructorImplementations = RoutineConstructors{
+	NewComeOnline:                newComeOnline,
+	NewEstablishConnectionToPeer: newEstablishConnectionToPeer,
 }
