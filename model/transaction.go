@@ -13,7 +13,6 @@ type Transaction struct {
 	Id      [IDLEN]byte
 	Routine Routine
 	fromCl  chan string
-	kill    chan struct{}
 }
 
 // genreate a random transaction id

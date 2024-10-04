@@ -104,13 +104,12 @@ func (c *Client) Route(masterRoutineConstructor func() Routine) {
 		// otherwise create a new transaction
 		tNew := Transaction{
 			fromCl:  make(chan string, 1),
-			kill:    make(chan struct{}),
 			Id:      id,
 			Routine: masterRoutineConstructor(),
 		}
 
 		// add to transaction list and add listeners
-		c.AddTransaction(tNew)
+		c.addTransaction(tNew)
 
 		tNew.fromCl <- string(msgBytes[IDLEN:])
 
@@ -127,7 +126,7 @@ func (c *Client) Route(masterRoutineConstructor func() Routine) {
 // Add a new transaction to the client.
 // The channels in the transaction will be assosiated with the provided id in the client.
 // Threadsafe.
-func (c *Client) AddTransaction(t Transaction) {
+func (c *Client) addTransaction(t Transaction) {
 
 	_, idExists := c.transactions[t.Id]
 	if idExists {
@@ -142,7 +141,7 @@ func (c *Client) AddTransaction(t Transaction) {
 }
 
 // threadsafe
-func (c *Client) DeleteTransaction(id [IDLEN]byte) error {
+func (c *Client) deleteTransaction(id [IDLEN]byte) error {
 
 	var t Transaction
 
@@ -181,7 +180,7 @@ func (c *Client) close() {
 	// they might also try to delete themselves in their own goroutines,
 	// but DeleteTransaction has synchronization to ensure that the transactions get deleted at most once.
 	for tid := range c.transactions {
-		c.DeleteTransaction(tid)
+		c.deleteTransaction(tid)
 	}
 	c.closeDanglingChannels()
 }
@@ -198,7 +197,7 @@ func (c *Client) routeTransaction(t Transaction) {
 		case <-timeoutTimer:
 			c.writeTransactionMessage(t.Id, `{"terminate":"cancel","error":"timeout"}`)
 			done = true
-			c.DeleteTransaction(t.Id)
+			c.deleteTransaction(t.Id)
 
 		case fromClMsg, ok := <-t.fromCl:
 			if !ok {
@@ -230,7 +229,7 @@ func (c *Client) routeTransaction(t Transaction) {
 
 			done = stepOutput.Done
 			if stepOutput.Done {
-				c.DeleteTransaction(t.Id) // this also adds t.fromCl to the dangling channels list
+				c.deleteTransaction(t.Id) // this also adds t.fromCl to the dangling channels list
 			}
 		}
 
