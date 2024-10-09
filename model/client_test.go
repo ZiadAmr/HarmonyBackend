@@ -14,11 +14,21 @@ type instantTimeoutRoutine struct {
 	routineNumber int
 }
 
-func (r *instantTimeoutRoutine) Next(msg string) RoutineOutput {
-	out := MakeRoutineOutput(false, strconv.Itoa(r.routineNumber))
-	out.TimeoutEnabled = true
-	out.TimeoutDuration = 0 * time.Second
-	return out
+func (r *instantTimeoutRoutine) Next(msgType RoutineMsgType, pk *PublicKey, msg string) []RoutineOutput {
+	switch msgType {
+	case RoutineMsgType_UsrMsg:
+		out := MakeRoutineOutput(false, strconv.Itoa(r.routineNumber))
+		out.TimeoutEnabled = true
+		out.TimeoutDuration = 0 * time.Second
+		return []RoutineOutput{out}
+	case RoutineMsgType_Timeout:
+		// tell it to quit for real.
+		out := MakeRoutineOutput(true, `terminate`)
+		return []RoutineOutput{out}
+	default:
+		return []RoutineOutput{}
+	}
+
 }
 
 // mock Conn implementation
@@ -62,12 +72,13 @@ func TestClient(t *testing.T) {
 			done:    make(chan struct{}),
 		}
 		client := MakeClient(mockConn)
+		mockHub := NewHub()
 
 		var routineInstanceCount = 0
 		// use a mock routine that times out instantly, but doesn't explicity complete.
 		// for each message received by an instantTimeoutRoutine, it sends its routine number back as a string
 		go func() {
-			client.Route(func() Routine {
+			client.Route(mockHub, func() Routine {
 				routineInstanceCount += 1
 				return &instantTimeoutRoutine{
 					routineNumber: routineInstanceCount - 1,
@@ -126,39 +137,40 @@ func TestClient(t *testing.T) {
 			}
 		}
 
-		errTerminateMsgSchema := func() *gojsonschema.Schema {
-			const errorSchemaString = `
-				{
-					"$schema": "https://json-schema.org/draft/2020-12/schema",
-					"type": "object",
-					"properties": {
-						"terminate": {
-							"const":"cancel"
-						},
-						"error": {
-							"type": "string" 
-						}
-					},
-					"required": ["terminate"],
-					"additionalProperties": false
-				}
-			`
-			schemaLoader := gojsonschema.NewStringLoader(errorSchemaString)
-			schema, _ := gojsonschema.NewSchema(schemaLoader)
-			return schema
-		}()
+		// errTerminateMsgSchema := func() *gojsonschema.Schema {
+		// 	const errorSchemaString = `
+		// 		{
+		// 			"$schema": "https://json-schema.org/draft/2020-12/schema",
+		// 			"type": "object",
+		// 			"properties": {
+		// 				"terminate": {
+		// 					"const":"cancel"
+		// 				},
+		// 				"error": {
+		// 					"type": "string"
+		// 				}
+		// 			},
+		// 			"required": ["terminate"],
+		// 			"additionalProperties": false
+		// 		}
+		// 	`
+		// 	schemaLoader := gojsonschema.NewStringLoader(errorSchemaString)
+		// 	schema, _ := gojsonschema.NewSchema(schemaLoader)
+		// 	return schema
+		// }()
 
-		errTerminateMsgCount := 0
-		for _, str := range outMsgStrings {
-			strLoader := gojsonschema.NewStringLoader(str)
-			result, err := errTerminateMsgSchema.Validate(strLoader)
-			if err == nil && result.Valid() {
-				errTerminateMsgCount += 1
-			}
-		}
+		// errTerminateMsgCount := 0
+		// for _, str := range outMsgStrings {
+		// 	strLoader := gojsonschema.NewStringLoader(str)
+		// 	result, err := errTerminateMsgSchema.Validate(strLoader)
+		// 	if err == nil && result.Valid() {
+		// 		errTerminateMsgCount += 1
+		// 	}
+		// }
 
 		msgsSentToR0Count := countOccurrences(outMsgStrings, "0")
 		msgsSentToR1Count := countOccurrences(outMsgStrings, "1")
+		errTerminateMsgCount := countOccurrences(outMsgStrings, "terminate")
 
 		t.Logf("Messages: %v", outMsgStrings)
 

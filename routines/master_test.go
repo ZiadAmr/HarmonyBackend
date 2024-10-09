@@ -10,9 +10,9 @@ type LoggerRoutine struct {
 	msgs []string
 }
 
-func (r *LoggerRoutine) Next(msg string) model.RoutineOutput {
+func (r *LoggerRoutine) Next(msgType model.RoutineMsgType, pk *model.PublicKey, msg string) []model.RoutineOutput {
 	r.msgs = append(r.msgs, msg)
-	return model.MakeRoutineOutput(false)
+	return []model.RoutineOutput{model.MakeRoutineOutput(false)}
 }
 
 func TestMasterRoutine(t *testing.T) {
@@ -99,8 +99,8 @@ func TestMasterRoutine(t *testing.T) {
 
 				master := newMasterRoutineDependencyInj(routineImpls, mockClient, mockHub)
 
-				master.Next(`{
-					"initiate": "` + tt.initiateKeyword + `"
+				master.Next(model.RoutineMsgType_UsrMsg, nil, `{
+					"initiate": "`+tt.initiateKeyword+`"
 				}`)
 
 				// check only the correct routines was called
@@ -139,7 +139,7 @@ func TestMasterRoutine(t *testing.T) {
 		master := newMasterRoutineDependencyInj(mockConstructorImpls, mockClient, mockHub)
 
 		for i, input := range test {
-			master.Next(input)
+			master.Next(model.RoutineMsgType_UsrMsg, nil, input)
 			if len(loggerRoutine.msgs) != i+1 {
 				t.Errorf("Input %s was not passed to routine", input)
 				break

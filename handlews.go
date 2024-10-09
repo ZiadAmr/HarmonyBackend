@@ -36,7 +36,7 @@ func createAndRouteClient(conn model.Conn) {
 		}
 	}()
 
-	client.Route(func() model.Routine {
+	client.Route(hub, func() model.Routine {
 		return routines.NewMasterRoutine(&client, hub)
 	})
 

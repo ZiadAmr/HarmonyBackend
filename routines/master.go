@@ -32,17 +32,17 @@ func newMasterRoutineDependencyInj(rc RoutineConstructors, client *model.Client,
 	}
 }
 
-func (r *MasterRoutine) Next(msg string) model.RoutineOutput {
+func (r *MasterRoutine) Next(msgType model.RoutineMsgType, pk *model.PublicKey, msg string) []model.RoutineOutput {
 
 	if !r.isSubRoutineSet {
 		err := r.setSubRoutineFromInitialMsg(msg)
 		if err != nil {
-			return model.MakeRoutineOutput(true, MakeJSONError(err.Error()))
+			return []model.RoutineOutput{model.MakeRoutineOutput(true, MakeJSONError(err.Error()))}
 		}
 		r.isSubRoutineSet = true
 	}
 
-	return r.subRoutine.Next(msg)
+	return r.subRoutine.Next(msgType, pk, msg)
 }
 
 // list of acceptable values of the `"initiate":` property

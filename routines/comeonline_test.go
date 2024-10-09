@@ -44,20 +44,28 @@ func TestComeOnline(t *testing.T) {
 				}(),
 				steps: []Step{
 					{
+						model.RoutineMsgType_UsrMsg,
+						nil,
 						step_input,
 						`{"initiate": "comeOnline"}`,
 					},
 					{
+						model.RoutineMsgType_UsrMsg,
+						nil,
 						step_outputSchema,
 						comeOnlineVersionResponseSchema,
 					},
 					{
+						model.RoutineMsgType_UsrMsg,
+						nil,
 						step_input,
 						`{
 							"publicKey": "cffd10babed1182e7d8e6cff845767eeae4508aa13cd00379233f57f799dc18c1eefd35b51db36e3da4770737a3f8fe75eda0cd3c48f23ea705f3234b0929f9e"
 						}`,
 					},
 					{
+						model.RoutineMsgType_UsrMsg,
+						nil,
 						step_outputSchema,
 						comeOnlineWelcomeResponseSchema,
 					},
@@ -103,18 +111,26 @@ func TestComeOnline(t *testing.T) {
 			{
 				steps: []Step{
 					{
+						model.RoutineMsgType_UsrMsg,
+						nil,
 						step_input,
 						`{"initiate": "comeOnline"}`,
 					},
 					{
+						model.RoutineMsgType_UsrMsg,
+						nil,
 						step_outputSchema,
 						comeOnlineVersionResponseSchema,
 					},
 					{
+						model.RoutineMsgType_UsrMsg,
+						nil,
 						step_input,
 						`bad input!!!!!`,
 					},
 					{
+						model.RoutineMsgType_UsrMsg,
+						nil,
 						step_outputSchema,
 						errorSchemaString,
 					},
@@ -140,20 +156,28 @@ func TestComeOnline(t *testing.T) {
 
 		steps := []Step{
 			{
+				model.RoutineMsgType_UsrMsg,
+				nil,
 				step_input,
 				`{"initiate": "comeOnline"}`,
 			},
 			{
+				model.RoutineMsgType_UsrMsg,
+				nil,
 				step_outputSchema,
 				comeOnlineVersionResponseSchema,
 			},
 			{
+				model.RoutineMsgType_UsrMsg,
+				nil,
 				step_input,
 				`{
 					"publicKey": "cffd10babed1182e7d8e6cff845767eeae4508aa13cd00379233f57f799dc18c1eefd35b51db36e3da4770737a3f8fe75eda0cd3c48f23ea705f3234b0929f9e"
 				}`,
 			},
 			{
+				model.RoutineMsgType_UsrMsg,
+				nil,
 				step_outputSchema,
 				errorSchemaString,
 			},
@@ -166,7 +190,7 @@ func TestComeOnline(t *testing.T) {
 		client0 := &model.Client{}
 		key := (*model.PublicKey)([]byte("\xcf\xfd\x10\xba\xbe\xd1\x18\x2e\x7d\x8e\x6c\xff\x84\x57\x67\xee\xae\x45\x08\xaa\x13\xcd\x00\x37\x92\x33\xf5\x7f\x79\x9d\xc1\x8c\x1e\xef\xd3\x5b\x51\xdb\x36\xe3\xda\x47\x70\x73\x7a\x3f\x8f\xe7\x5e\xda\x0c\xd3\xc4\x8f\x23\xea\x70\x5f\x32\x34\xb0\x92\x9f\x9e"))
 		client0.SetPublicKey(key)
-		hub.AddClient(client0)
+		hub.AddClient(*key, client0)
 
 		// client that tries to use a public key that is already signed in
 		client1 := &model.Client{}
@@ -195,10 +219,14 @@ func TestComeOnline(t *testing.T) {
 
 		steps := []Step{
 			{
+				model.RoutineMsgType_UsrMsg,
+				nil,
 				step_input,
 				`{"initiate": "comeOnline"}`,
 			},
 			{
+				model.RoutineMsgType_UsrMsg,
+				nil,
 				step_outputSchema,
 				errorSchemaString,
 			},
@@ -220,20 +248,28 @@ func TestComeOnline(t *testing.T) {
 		tests := [][]Step{
 			{
 				{
+					model.RoutineMsgType_UsrMsg,
+					nil,
 					step_input,
 					`{"initiate": "comeOnline", "terminate":"cancel"}`,
 				},
 			},
 			{
 				{
+					model.RoutineMsgType_UsrMsg,
+					nil,
 					step_input,
 					`{"initiate": "comeOnline"}`,
 				},
 				{
+					model.RoutineMsgType_UsrMsg,
+					nil,
 					step_outputSchema,
 					comeOnlineVersionResponseSchema,
 				},
 				{
+					model.RoutineMsgType_UsrMsg,
+					nil,
 					step_input,
 					`{"terminate":"cancel"}`,
 				},
