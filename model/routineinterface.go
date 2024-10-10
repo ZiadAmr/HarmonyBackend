@@ -5,7 +5,14 @@ import "time"
 type Routine interface {
 	// called on each message from the client.
 	// public key is nil if unset.
-	Next(msgType RoutineMsgType, pk *PublicKey, msg string) []RoutineOutput
+	Next(args RoutineInput) []RoutineOutput
+}
+
+type RoutineInput struct {
+	MsgType RoutineMsgType
+	Pk      *PublicKey
+	// can be ignored if MsgType is not RoutineMsgType_UsrMsg.
+	Msg string
 }
 
 type RoutineMsgType int
@@ -22,7 +29,7 @@ type RoutineOutput struct {
 	Pk *PublicKey
 	// 0 or more messages to send to the client
 	Msgs []string
-	// whether the routine should no longer accept messages from the client. You might still get a couple more from this client after sending done=true, but you can choose to ignore them in the routine.
+	// whether the routine should no longer accept messages from the client.
 	// routine should NOT send any more messages after sending Done=true, or receiving a msg of msgType RoutineMsgType_ClientClose. This could result in a panic().
 	Done bool
 	// if no message is received within the timeout then the routine gets a .Next() with message type RoutineMsgType_Timeout

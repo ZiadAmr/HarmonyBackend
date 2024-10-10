@@ -14,8 +14,8 @@ type instantTimeoutRoutine struct {
 	routineNumber int
 }
 
-func (r *instantTimeoutRoutine) Next(msgType RoutineMsgType, pk *PublicKey, msg string) []RoutineOutput {
-	switch msgType {
+func (r *instantTimeoutRoutine) Next(args RoutineInput) []RoutineOutput {
+	switch args.MsgType {
 	case RoutineMsgType_UsrMsg:
 		out := MakeRoutineOutput(false, strconv.Itoa(r.routineNumber))
 		out.TimeoutEnabled = true
@@ -90,6 +90,9 @@ func TestClient(t *testing.T) {
 
 		// initiate the routine
 		mockConn.fromCl <- []byte(idstr)
+
+		// wait a bit
+		<-time.After(10 * time.Millisecond)
 
 		// send another message to the routine
 		mockConn.fromCl <- []byte(idstr)

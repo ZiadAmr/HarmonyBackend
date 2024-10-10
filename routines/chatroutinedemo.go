@@ -20,8 +20,8 @@ func NewChatRoutineDemo(client *model.Client, hub *model.Hub) model.Routine {
 	}
 }
 
-func (r *ChatRoutineDemo) Next(msgType model.RoutineMsgType, pk *model.PublicKey, msg string) []model.RoutineOutput {
-	switch msgType {
+func (r *ChatRoutineDemo) Next(args model.RoutineInput) []model.RoutineOutput {
+	switch args.MsgType {
 	case model.RoutineMsgType_Timeout:
 		return []model.RoutineOutput{{
 			Msgs: []string{`Timed out waiting for a response - you no longer have access to this transaction. Start a new one if you want to send additional messages`},
@@ -34,7 +34,7 @@ func (r *ChatRoutineDemo) Next(msgType model.RoutineMsgType, pk *model.PublicKey
 			Msg       string
 		}{}
 
-		json.Unmarshal([]byte(msg), &usrMsg)
+		json.Unmarshal([]byte(args.Msg), &usrMsg)
 		peerPkBytes, _ := hex.DecodeString(usrMsg.PublicKey)
 		peerPk := (*model.PublicKey)(peerPkBytes)
 

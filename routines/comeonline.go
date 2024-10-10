@@ -37,19 +37,27 @@ func newComeOnline(client *model.Client, hub *model.Hub) model.Routine {
 	}
 }
 
-func (c *ComeOnline) Next(msgType model.RoutineMsgType, pk *model.PublicKey, msg string) []model.RoutineOutput {
+func (c *ComeOnline) Next(args model.RoutineInput) []model.RoutineOutput {
 
-	if isClientCancelMsg(msg) {
-		return makeCOOutput(true /*close transaction*/)
+	switch args.MsgType {
+	case model.RoutineMsgType_ClientClose:
+		return []model.RoutineOutput{}
+	case model.RoutineMsgType_Timeout:
+		return makeCOOutput(true, MakeJSONError("timeout"))
+	case model.RoutineMsgType_UsrMsg:
+		if isClientCancelMsg(args.Msg) {
+			return makeCOOutput(true)
+		}
+		switch c.step {
+		case comeOnlineStep_hello:
+			return c.hello()
+		case comeOnlineStep_recvPublicKey:
+			return c.recvPublicKey(args.Msg)
+		}
+		panic("unrecognized step")
 	}
+	panic("unrecognized message type")
 
-	switch c.step {
-	case comeOnlineStep_hello:
-		return c.hello()
-	case comeOnlineStep_recvPublicKey:
-		return c.recvPublicKey(msg)
-	}
-	panic("Unrecognized step")
 }
 
 // send version number

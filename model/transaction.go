@@ -12,12 +12,14 @@ const IDLEN = 16
 // instance of a routine
 type transaction struct {
 	// routine output channels - for communication between users
-	pkToROChan     map[PublicKey](chan RoutineOutput)
-	pkToROChanLock sync.Mutex
+	pkToROChan map[PublicKey](chan RoutineOutput)
+	// also requires pkToROChanLock
+	transactionSocketCount int
+	pkToROChanLock         sync.Mutex
 
-	// prevent concurrent calls to routine.Next() and .Timeout(), and wrapper code in the client
-	routineLock sync.Mutex
-	routine     Routine
+	routine Routine
+
+	riChan chan routineInputWrapper
 }
 
 type transactionStatus struct {
@@ -25,12 +27,14 @@ type transactionStatus struct {
 	timeoutTimer <-chan time.Time
 }
 
-type clientTransactionWrapper struct {
-	fromCl      chan string
-	roChan      chan RoutineOutput
-	id          [IDLEN]byte
-	transaction *transaction
-	status      transactionStatus
+// each client interacting with a given transaction has one of these
+type transactionSocket struct {
+	fromCl          chan string
+	clientCloseChan chan struct{}
+	roChan          chan RoutineOutput
+	id              [IDLEN]byte
+	transaction     *transaction
+	status          transactionStatus
 }
 
 // genreate a random transaction id
