@@ -44,7 +44,6 @@ func main() {
 		if err != nil {
 			return
 		}
-		// defer means it executes after the function returns.
 		defer conn.Close()
 
 		client := model.MakeClient(conn)

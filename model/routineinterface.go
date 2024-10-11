@@ -4,13 +4,13 @@ import "time"
 
 type Routine interface {
 	// called on each message from the client.
-	// public key is nil if unset.
 	Next(args RoutineInput) []RoutineOutput
 }
 
 type RoutineInput struct {
 	MsgType RoutineMsgType
-	Pk      *PublicKey
+	// public key is nil if unset.
+	Pk *PublicKey
 	// can be ignored if MsgType is not RoutineMsgType_UsrMsg.
 	Msg string
 }

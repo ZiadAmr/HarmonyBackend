@@ -1,22 +1,16 @@
 package model
 
-// TODO NEED TO MAKE THIS THREADSAFE
+// threadsafe
 
 import (
 	"errors"
 	"sync"
 )
 
-// use this interface in place of the Client struct
-// there may be other stuff in the Client struct that we don't care about here.
-// use interface cos it's easier to mock if needed
-type hasPublicKey interface {
-	GetPublicKey() *PublicKey
-}
-
 type Hub = genericHub[*Client]
 
-type genericHub[C hasPublicKey] struct {
+// make hub generic for testing purposes
+type genericHub[C interface{}] struct {
 	clients map[PublicKey]C
 	lock    sync.Mutex
 }
@@ -25,7 +19,7 @@ func NewHub() *Hub {
 	return newGenericHub[*Client]()
 }
 
-func newGenericHub[C hasPublicKey]() *genericHub[C] {
+func newGenericHub[C interface{}]() *genericHub[C] {
 	return &genericHub[C]{
 		clients: make(map[PublicKey]C),
 	}

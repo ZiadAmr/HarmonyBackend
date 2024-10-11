@@ -34,17 +34,17 @@ type Client struct {
 	// lock to prevent simultaneous writes to the websocket conn
 	conn          Conn
 	connWriteLock sync.Mutex
-	// map of active transactions for this client; id -> transaction
+	// map of active transactionSockets for this client; id -> transactionSocket
 	// should not access directly outside client.go
-	transactions           map[[IDLEN]byte]*transactionSocket
+	transactionSockets     map[[IDLEN]byte]*transactionSocket
 	modifyTransactionsLock sync.Mutex
 	// used to prevent new transactions being added after broken out of the main loop
 	// must use modifyTransactionsLock when reading or editing
 	disconnected bool
 	// channels that should be closed byt the main loop
 	// these channels cause transaction goroutines to return when closed.
-	danglingFromClChannels           []chan string
-	modifyDanglingFromClChannelsLock sync.Mutex
+	danglingClientMsgChannels           []chan string
+	modifyDanglingClientMsgChannelsLock sync.Mutex
 	//
 	danglingClientCloseChannels           []chan struct{}
 	modifyDanglingClientCloseChannelsLock sync.Mutex
@@ -54,8 +54,8 @@ func MakeClient(conn Conn) Client {
 	return Client{
 		publicKey: nil, // initially unset. When set, it implies the client has been added to the hub.
 
-		conn:         conn,
-		transactions: make(map[[IDLEN]byte]*transactionSocket),
+		conn:               conn,
+		transactionSockets: make(map[[IDLEN]byte]*transactionSocket),
 	}
 }
 
@@ -96,11 +96,11 @@ func (c *Client) Route(hub *Hub, makeRoutine func() Routine) {
 		id := ([IDLEN]byte)(msgBytes[:IDLEN])
 
 		// check if a transaction with this id exists already
-		tSocket, exists := c.transactions[id]
+		tSocket, exists := c.transactionSockets[id]
 		// if so, pass the message to that transaction
 		if exists {
 			select {
-			case tSocket.fromCl <- string(msgBytes[IDLEN:]):
+			case tSocket.clientMsgChan <- string(msgBytes[IDLEN:]):
 			default:
 				c.writeTransactionMessage(tSocket.id, `{"error":"Buffer is occupied, message ignored"}`)
 			}
@@ -117,21 +117,21 @@ func (c *Client) Route(hub *Hub, makeRoutine func() Routine) {
 			// client has disconnected
 			// It's ok to close there here because nowhere else has access to them
 			// and nowhere else will
-			close(tSocketNew.fromCl)
+			close(tSocketNew.clientMsgChan)
 			close(tSocketNew.clientCloseChan)
 			close(tSocketNew.roChan)
 			continue
 		}
 
-		// route routine (only one for a routine)
-		go routeRoutine(hub, tNew)
+		// route transaction
+		go tNew.route(hub)
 
-		// route transaction (one for each client that interacts with this routine)
-		go c.routeTransaction(tSocketNew)
+		// route transaction socket (one for each client that interacts with this routine)
+		go c.routeTransactionSocket(tSocketNew)
 
 		// send first message
-		// read by routeTransaction
-		tSocketNew.fromCl <- string(msgBytes[IDLEN:])
+		// read by routeTransactionSocket
+		tSocketNew.clientMsgChan <- string(msgBytes[IDLEN:])
 	}
 
 	// breaks out here when the websocket is closed.
@@ -142,7 +142,7 @@ func (c *Client) Route(hub *Hub, makeRoutine func() Routine) {
 func (c *Client) newTransactionSocket(transaction *transaction, id [IDLEN]byte) *transactionSocket {
 	roChan := make(chan RoutineOutput)
 	return &transactionSocket{
-		fromCl:          make(chan string, 1),
+		clientMsgChan:   make(chan string, 1),
 		clientCloseChan: make(chan struct{}),
 		roChan:          roChan,
 		transaction:     transaction,
@@ -163,7 +163,7 @@ func (c *Client) newTransaction(routine Routine) *transaction {
 // Threadsafe.
 func (c *Client) addTransactionSocket(t *transactionSocket) error {
 
-	_, idExists := c.transactions[t.id]
+	_, idExists := c.transactionSockets[t.id]
 	if idExists {
 		panic("Attempted to registed a transaction id that already exists!")
 	}
@@ -186,7 +186,7 @@ func (c *Client) addTransactionSocket(t *transactionSocket) error {
 				t.transaction.transactionSocketCount += 1
 			}()
 
-			c.transactions[t.id] = t
+			c.transactionSockets[t.id] = t
 			return nil
 		}
 	}()
@@ -203,13 +203,13 @@ func (c *Client) deleteTransactionSocket(id [IDLEN]byte) error {
 		defer c.modifyTransactionsLock.Unlock()
 		c.modifyTransactionsLock.Lock()
 
-		t0, exists := c.transactions[id]
+		t0, exists := c.transactionSockets[id]
 		if !exists {
 			return errors.New("transaction does not exist")
 		}
 		// save the socket so we can deal with the dangling channels
 		ts = t0
-		delete(c.transactions, id)
+		delete(c.transactionSockets, id)
 		return nil
 	}()
 	if err != nil {
@@ -237,9 +237,9 @@ func (c *Client) deleteTransactionSocket(id [IDLEN]byte) error {
 	// mutex section above ensures that sinch we reach here, this is the only time that the specified transaction is being deleted
 	// therefore we don't need to worry about duplicate channels ending up in the dangling channels list.
 	func() {
-		defer c.modifyDanglingFromClChannelsLock.Unlock()
-		c.modifyDanglingFromClChannelsLock.Lock()
-		c.danglingFromClChannels = append(c.danglingFromClChannels, ts.fromCl)
+		defer c.modifyDanglingClientMsgChannelsLock.Unlock()
+		c.modifyDanglingClientMsgChannelsLock.Lock()
+		c.danglingClientMsgChannels = append(c.danglingClientMsgChannels, ts.clientMsgChan)
 	}()
 	func() {
 		defer c.modifyDanglingClientCloseChannelsLock.Unlock()
@@ -262,7 +262,7 @@ func (c *Client) close() {
 	// they might also try to delete themselves in their own goroutines,
 	// but deleteTransactionSocket has synchronization to ensure that the transactions get deleted at most once.
 	// also send a ClientClose message to the routines
-	for _, t := range c.transactions {
+	for _, t := range c.transactionSockets {
 		t.clientCloseChan <- struct{}{}
 	}
 
@@ -275,16 +275,15 @@ func (c *Client) close() {
 }
 
 // should run in a separate goroutine to the main Route() loop.
-// this can ONLY be terminated by closing fromClMsg.
-func (c *Client) routeTransaction(ts *transactionSocket) {
+func (c *Client) routeTransactionSocket(ts *transactionSocket) {
 
 	// this function exits when ALL the below channels have closed.
 	// both these channels are closed by the write end.
 	roChanClosed := false
-	fromClClosed := false
+	clientMsgChanClosed := false
 	clientCloseChanClosed := false
 	allClosed := func() bool {
-		return roChanClosed && fromClClosed && clientCloseChanClosed
+		return roChanClosed && clientMsgChanClosed && clientCloseChanClosed
 	}
 
 	ts.status = transactionStatus{
@@ -310,7 +309,7 @@ func (c *Client) routeTransaction(ts *transactionSocket) {
 			// routine output received from another goroutine
 			ts.status = c.processRoutineOutput(ts, ro)
 			if ro.Done {
-				c.deleteTransactionSocket(ts.id) // this also adds t.fromCl to the dangling channels list
+				c.deleteTransactionSocket(ts.id) // this also adds t.clientMsgChan to the dangling channels list
 			}
 
 		// client close
@@ -327,8 +326,7 @@ func (c *Client) routeTransaction(ts *transactionSocket) {
 			if ts.status.done {
 				continue
 			}
-			ts.status.done = true
-			ts.transaction.riChan <- routineInputWrapper{
+			riw := routineInputWrapper{
 				args: RoutineInput{
 					MsgType: RoutineMsgType_ClientClose,
 					Pk:      c.GetPublicKey(),
@@ -336,6 +334,19 @@ func (c *Client) routeTransaction(ts *transactionSocket) {
 				},
 				senderRoChan: ts.roChan,
 			}
+
+			select {
+			// try to send. might be blocked
+			case ts.transaction.riChan <- riw:
+			default:
+				// keep trying to send riw while listening and processing roChan at the same time
+				// this ensures that the route transaction goroutine won't be blocked if it tries to send a ro to us - riChan buffer can empty so that we can eventually send the riw
+				roChanWasClosedDuringThis := c.sendMessageAndAvoidRoChanDeadlock(riw, ts)
+				if roChanWasClosedDuringThis {
+					roChanClosed = true
+				}
+			}
+			ts.status.done = true
 			c.deleteTransactionSocket(ts.id)
 
 		// timeout
@@ -345,7 +356,7 @@ func (c *Client) routeTransaction(ts *transactionSocket) {
 				continue
 			}
 
-			ts.transaction.riChan <- routineInputWrapper{
+			riw := routineInputWrapper{
 				args: RoutineInput{
 					MsgType: RoutineMsgType_Timeout,
 					Pk:      c.GetPublicKey(),
@@ -354,11 +365,22 @@ func (c *Client) routeTransaction(ts *transactionSocket) {
 				senderRoChan: ts.roChan,
 			}
 
+			select {
+			// try to send. might be blocked
+			case ts.transaction.riChan <- riw:
+			default:
+				// keep trying to send riw while listening and processing roChan at the same time
+				roChanWasClosedDuringThis := c.sendMessageAndAvoidRoChanDeadlock(riw, ts)
+				if roChanWasClosedDuringThis {
+					roChanClosed = true
+				}
+			}
+
 		// message from client
-		case fromClMsg, ok := <-ts.fromCl:
+		case msg, ok := <-ts.clientMsgChan:
 
 			if !ok {
-				fromClClosed = true
+				clientMsgChanClosed = true
 				if allClosed() {
 					return
 				} else {
@@ -369,8 +391,8 @@ func (c *Client) routeTransaction(ts *transactionSocket) {
 			if ts.status.done {
 				// the routine has ended and the Transaction struct has been deleted,
 				// but the main Route loop hasn't figured that out yet and is continuing to send us messages.
-				// the next time Route gets to the top of its loop it should close fromClMsg.
-				// ignore message, and keep waiting for fromClMsg to be closed.
+				// the next time Route gets to the top of its loop it should close clientMsgChan.
+				// ignore message, and keep waiting for clientMsgChan to be closed.
 				c.writeTransactionMessage(ts.id, `{"error":"transaction has terminated"}`)
 				continue
 			}
@@ -379,7 +401,7 @@ func (c *Client) routeTransaction(ts *transactionSocket) {
 				args: RoutineInput{
 					MsgType: RoutineMsgType_UsrMsg,
 					Pk:      c.GetPublicKey(),
-					Msg:     fromClMsg,
+					Msg:     msg,
 				},
 				senderRoChan: ts.roChan,
 			}
@@ -394,6 +416,42 @@ func (c *Client) routeTransaction(ts *transactionSocket) {
 		}
 
 	}
+
+}
+
+// some messages (client close and timeout) we must send this message to the routine - we can't throw them away if the buffer is full
+// otherwise the routine might never terminate properly
+// but also we can't block this goroutine by trying to write to riChan, because this could cause a deadlock if the route transaction goroutine tries to send a routine output to us.
+// solution - do both at once.
+// Returns true if roChan was closed during this loop.
+func (c *Client) sendMessageAndAvoidRoChanDeadlock(riw routineInputWrapper, ts *transactionSocket) bool {
+
+	roChanClosed := false
+
+AntiDeadlockLoop:
+	for {
+		if ts.status.done {
+			break AntiDeadlockLoop
+		}
+		select {
+		// try to send the message
+		case ts.transaction.riChan <- riw:
+			break AntiDeadlockLoop
+		// if blocked we can read from rochan to allow the richan buffer to empty
+		case ro, ok := <-ts.roChan:
+			if !ok {
+				roChanClosed = true
+				continue
+			}
+			// do usual processing stuff with the ro
+			ts.status = c.processRoutineOutput(ts, ro)
+			if ro.Done {
+				c.deleteTransactionSocket(ts.id)
+			}
+		}
+	}
+
+	return roChanClosed
 
 }
 
@@ -418,17 +476,17 @@ func (c *Client) processRoutineOutput(t *transactionSocket, ro RoutineOutput) tr
 	return status
 }
 
-// close leftover channels, causing routeTransaction() goroutines which use those channels to close
+// close leftover channels, causing routeTransactionSocket() goroutines which use those channels to close
 func (c *Client) closeDanglingChannels() {
 
 	func() {
-		defer c.modifyDanglingFromClChannelsLock.Unlock()
-		c.modifyDanglingFromClChannelsLock.Lock()
-		if len(c.danglingFromClChannels) > 0 {
-			for _, ch := range c.danglingFromClChannels {
+		defer c.modifyDanglingClientMsgChannelsLock.Unlock()
+		c.modifyDanglingClientMsgChannelsLock.Lock()
+		if len(c.danglingClientMsgChannels) > 0 {
+			for _, ch := range c.danglingClientMsgChannels {
 				close(ch)
 			}
-			c.danglingFromClChannels = make([]chan string, 0)
+			c.danglingClientMsgChannels = make([]chan string, 0)
 		}
 	}()
 
