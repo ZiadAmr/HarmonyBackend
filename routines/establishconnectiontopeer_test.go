@@ -678,7 +678,7 @@ var ectpStepFinalIceA = Step{
 }
 
 var ectpStepFinalIceATerminate = Step{
-	description: "A sends an empty ICE candidate to denote end of ice candidates, server passes it to B",
+	description: "A sends an empty ICE candidate to denote end of ice candidates, server passes it to B and terminates both transaction sockets",
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_UsrMsg,
 		Pk:      &pkA,
@@ -732,7 +732,7 @@ var ectpStepFinalIceB = Step{
 }
 
 var ectpStepFinalIceBTerminate = Step{
-	description: "B sends an empty ICE candidate to denote end of ice candidates, server passes it to A",
+	description: "B sends an empty ICE candidate to denote end of ice candidates, server passes it to A and terminates both transaction sockets",
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_UsrMsg,
 		Pk:      &pkB,
