@@ -10,9 +10,9 @@ type LoggerRoutine struct {
 	msgs []string
 }
 
-func (r *LoggerRoutine) Next(msg string) model.RoutineOutput {
-	r.msgs = append(r.msgs, msg)
-	return model.MakeRoutineOutput(false)
+func (r *LoggerRoutine) Next(args model.RoutineInput) []model.RoutineOutput {
+	r.msgs = append(r.msgs, args.Msg)
+	return []model.RoutineOutput{model.MakeRoutineOutput(false)}
 }
 
 func TestMasterRoutine(t *testing.T) {
@@ -48,13 +48,18 @@ func TestMasterRoutine(t *testing.T) {
 
 				testRunner(t, master, []Step{
 					{
-						kind:    step_input,
-						content: tt,
-					},
-					{
-						// expect an error
-						kind:    step_outputSchema,
-						content: errorSchemaString,
+						input: model.RoutineInput{
+							MsgType: model.RoutineMsgType_UsrMsg,
+							Msg:     tt,
+						},
+						outputs: []ExpectedOutput{
+							{
+								ro: model.RoutineOutput{
+									Msgs: []string{errorSchemaString()},
+									Done: true,
+								},
+							},
+						},
 					},
 				})
 
@@ -98,10 +103,13 @@ func TestMasterRoutine(t *testing.T) {
 				mockHub := model.NewHub()
 
 				master := newMasterRoutineDependencyInj(routineImpls, mockClient, mockHub)
-
-				master.Next(`{
-					"initiate": "` + tt.initiateKeyword + `"
-				}`)
+				master.Next(model.RoutineInput{
+					MsgType: model.RoutineMsgType_UsrMsg,
+					Pk:      nil,
+					Msg: `{
+						"initiate": "` + tt.initiateKeyword + `"
+					}`,
+				})
 
 				// check only the correct routines was called
 				thisRoutineCount := countOccurrences(calls, tt.routineConstructorName)
@@ -139,7 +147,11 @@ func TestMasterRoutine(t *testing.T) {
 		master := newMasterRoutineDependencyInj(mockConstructorImpls, mockClient, mockHub)
 
 		for i, input := range test {
-			master.Next(input)
+			master.Next(model.RoutineInput{
+				MsgType: model.RoutineMsgType_UsrMsg,
+				Pk:      nil,
+				Msg:     input,
+			})
 			if len(loggerRoutine.msgs) != i+1 {
 				t.Errorf("Input %s was not passed to routine", input)
 				break

@@ -1,4 +1,5 @@
 {
     "go.testOnSave": true,
     "go.testTimeout": "1s",
+    "go.testFlags": ["-count=1"]
 }

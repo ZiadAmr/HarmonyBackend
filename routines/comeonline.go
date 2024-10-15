@@ -37,23 +37,31 @@ func newComeOnline(client *model.Client, hub *model.Hub) model.Routine {
 	}
 }
 
-func (c *ComeOnline) Next(msg string) model.RoutineOutput {
+func (c *ComeOnline) Next(args model.RoutineInput) []model.RoutineOutput {
 
-	if isClientCancelMsg(msg) {
-		return makeCOOutput(true)
+	switch args.MsgType {
+	case model.RoutineMsgType_ClientClose:
+		return []model.RoutineOutput{}
+	case model.RoutineMsgType_Timeout:
+		return makeCOOutput(true, MakeJSONError("timeout"))
+	case model.RoutineMsgType_UsrMsg:
+		if isClientCancelMsg(args.Msg) {
+			return makeCOOutput(true)
+		}
+		switch c.step {
+		case comeOnlineStep_hello:
+			return c.hello()
+		case comeOnlineStep_recvPublicKey:
+			return c.recvPublicKey(args.Msg)
+		}
+		panic("unrecognized step")
 	}
+	panic("unrecognized message type")
 
-	switch c.step {
-	case comeOnlineStep_hello:
-		return c.hello()
-	case comeOnlineStep_recvPublicKey:
-		return c.recvPublicKey(msg)
-	}
-	panic("Unrecognized step")
 }
 
 // send version number
-func (c *ComeOnline) hello() model.RoutineOutput {
+func (c *ComeOnline) hello() []model.RoutineOutput {
 
 	if c.client.GetPublicKey() != nil {
 		return makeCOOutput(true, MakeJSONError("Public key already set"))
@@ -64,7 +72,7 @@ func (c *ComeOnline) hello() model.RoutineOutput {
 	return makeCOOutput(false, `{"version":"`+VERSION+`"}`)
 }
 
-func (c *ComeOnline) recvPublicKey(msg string) model.RoutineOutput {
+func (c *ComeOnline) recvPublicKey(msg string) []model.RoutineOutput {
 	key, err := parseUserKeyMessage(msg)
 	if err != nil {
 		return makeCOOutput(true, MakeJSONError(err.Error()))
@@ -73,8 +81,11 @@ func (c *ComeOnline) recvPublicKey(msg string) model.RoutineOutput {
 	if clientWithKeyAlreadyExists {
 		return makeCOOutput(true, MakeJSONError("Another client already signed in with this public key"))
 	}
+	err = c.hub.AddClient(*key, c.client)
+	if err != nil {
+		return makeCOOutput(true, MakeJSONError(err.Error()))
+	}
 	c.client.SetPublicKey(key)
-	c.hub.AddClient(c.client)
 	return makeCOOutput(true, `{"welcome":"welcome","terminate":"done"}`)
 }
 
@@ -127,9 +138,9 @@ func parseUserKeyMessage(keyMessageString string) (*model.PublicKey, error) {
 }
 
 // make ComeOnline output
-func makeCOOutput(done bool, msgs ...string) model.RoutineOutput {
+func makeCOOutput(done bool, msgs ...string) []model.RoutineOutput {
 	ro := model.MakeRoutineOutput(done, msgs...)
 	ro.TimeoutEnabled = true
 	ro.TimeoutDuration = timeout
-	return ro
+	return []model.RoutineOutput{ro}
 }

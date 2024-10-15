@@ -9,6 +9,6 @@ func newEstablishConnectionToPeer(client *model.Client, hub *model.Hub) model.Ro
 	return &EstablishConnectionToPeer{}
 }
 
-func (r *EstablishConnectionToPeer) Next(msg string) model.RoutineOutput {
-	return model.MakeRoutineOutput(true)
+func (r *EstablishConnectionToPeer) Next(args model.RoutineInput) []model.RoutineOutput {
+	return []model.RoutineOutput{model.MakeRoutineOutput(true)}
 }
