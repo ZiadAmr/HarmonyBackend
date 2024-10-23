@@ -1,7 +1,10 @@
 package routines
 
 import (
+	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"harmony/backend/model"
 	"strings"
 
 	"github.com/xeipuuv/gojsonschema"
@@ -67,4 +70,19 @@ func formatJSONError(result *gojsonschema.Result) string {
 var routineContructorImplementations = RoutineConstructors{
 	NewComeOnline:                newComeOnline,
 	NewEstablishConnectionToPeer: newEstablishConnectionToPeer,
+}
+
+func parsePublicKey(pkstr string) (*model.PublicKey, error) {
+	if len(pkstr) != model.KEYLEN*2 {
+		return nil, errors.New("key incorrect length")
+	}
+	pk, err := hex.DecodeString(pkstr)
+	if err != nil {
+		return nil, err
+	}
+	return (*model.PublicKey)(pk), nil
+}
+
+func publicKeyToString(pk model.PublicKey) string {
+	return hex.EncodeToString(pk[:])
 }
