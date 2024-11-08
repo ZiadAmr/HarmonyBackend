@@ -30,6 +30,10 @@ func MakeJSONError(msg ...string) string {
 	return string(b)
 }
 
+func terminateDoneJSONMsg() string {
+	return `{"terminate":"done"}`
+}
+
 // error messages to send to the client should look like this.
 var clientCancelSchema = func() *gojsonschema.Schema {
 	schemaLoader := gojsonschema.NewStringLoader(`

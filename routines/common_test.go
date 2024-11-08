@@ -79,6 +79,9 @@ func testRunner(t *testing.T, r model.Routine, steps []Step, configs ...testRunn
 
 	for stepNum, step = range steps {
 
+		expectedOutputsRemaining := make([]ExpectedOutput, len(step.outputs))
+		copy(expectedOutputsRemaining, step.outputs)
+
 		tLogf("Step %d: %s", stepNum, step.description)
 
 		ros := r.Next(step.input)
@@ -154,12 +157,12 @@ func testRunner(t *testing.T, r model.Routine, steps []Step, configs ...testRunn
 
 			// find the expected output
 			var expectedOutput *ExpectedOutput
-			for i, eo := range step.outputs {
+			for i, eo := range expectedOutputsRemaining {
 				if (eo.ro.Pk == nil && ro.Pk == nil) ||
 					(eo.ro.Pk != nil && ro.Pk != nil && *eo.ro.Pk == *ro.Pk) {
 					expectedOutput = &eo
 					// remove from list
-					step.outputs = append(step.outputs[:i], step.outputs[i+1:]...)
+					expectedOutputsRemaining = append(expectedOutputsRemaining[:i], expectedOutputsRemaining[i+1:]...)
 					break
 				}
 			}
@@ -211,7 +214,7 @@ func testRunner(t *testing.T, r model.Routine, steps []Step, configs ...testRunn
 
 		// check that all expected ros were sent
 		// if there are some outputs left over here then they were not fulfilled
-		for _, eo := range step.outputs {
+		for _, eo := range expectedOutputsRemaining {
 			tErrorf("Expected a RoutineOutput for pk %s in step %d", pkToStr(eo.ro.Pk), stepNum)
 		}
 

@@ -194,13 +194,13 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 							input: model.RoutineInput{
 								MsgType: model.RoutineMsgType_UsrMsg,
 								Pk:      &pkA,
-								Msg:     "lol",
+								Msg:     "xd",
 							},
 							outputs: ectpOutputPkAErrorToBoth,
 						},
 						{
 							description: "B sends a message out of order",
-							input:       ectpStepIceAToB.input,
+							input:       ectpStepIceBtoA.input,
 							outputs:     ectpOutputPkBErrorToBoth,
 						},
 					},
@@ -460,7 +460,7 @@ func iceCandidate(payload string) string {
 				},
 				"required": ["type", "payload"],
 				"additionalProperties": false  
-			},
+			}
 		},
 		"required": ["forwarded"],
 		"additionalProperties": false
@@ -762,18 +762,18 @@ var ectpStepFinalIceBTerminate = Step{
 }
 
 var ectpStepPkADisconnect = Step{
-	description: "A times out",
+	description: "A disconnects",
 	input: model.RoutineInput{
-		MsgType: model.RoutineMsgType_Timeout,
+		MsgType: model.RoutineMsgType_ClientClose,
 		Pk:      &pkA,
 	},
 	outputs: ectpOutputPkADisconnectedToB,
 }
 
 var ectpStepPkBDisconnect = Step{
-	description: "B times out",
+	description: "B disconnects",
 	input: model.RoutineInput{
-		MsgType: model.RoutineMsgType_Timeout,
+		MsgType: model.RoutineMsgType_ClientClose,
 		Pk:      &pkB,
 	},
 	outputs: ectpOutputPkBDisconnectedToA,
@@ -817,9 +817,8 @@ var ectpOutputPkAErrorToBoth = []ExpectedOutput{
 	},
 	{
 		ro: model.RoutineOutput{
-
 			Pk:   &pkB,
-			Msgs: []string{errorSchemaString("Peer send a malformed message")},
+			Msgs: []string{errorSchemaString("Peer sent a malformed message")},
 			Done: true,
 		},
 	},
@@ -855,7 +854,7 @@ var ectpOutputPkBErrorToBoth = []ExpectedOutput{
 		ro: model.RoutineOutput{
 
 			Pk:   &pkA,
-			Msgs: []string{errorSchemaString("Peer send a malformed message")},
+			Msgs: []string{errorSchemaString("Peer sent a malformed message")},
 			Done: true,
 		},
 	},
