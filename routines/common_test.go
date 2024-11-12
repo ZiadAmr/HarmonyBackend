@@ -2,7 +2,7 @@
 package routines
 
 import (
-	"fmt"
+	"encoding/hex"
 	"harmony/backend/model"
 	"testing"
 
@@ -16,19 +16,49 @@ type ExpectedOutput struct {
 }
 
 type Step struct {
-	input   model.RoutineInput
-	outputs []ExpectedOutput
+	description string
+	input       model.RoutineInput
+	outputs     []ExpectedOutput
 }
 
 func pkToStr(pk *model.PublicKey) string {
 	if pk == nil {
 		return "nil"
 	} else {
-		return fmt.Sprintf("%v", *pk)
+		return hex.EncodeToString(pk[:model.KEYLEN/8]) + "[…]"
 	}
 }
 
-func testRunner(t *testing.T, r model.Routine, steps []Step) {
+type testRunnerConfig struct {
+	errorsOnLastStepOnly bool
+}
+
+func testRunner(t *testing.T, r model.Routine, steps []Step, configs ...testRunnerConfig) {
+
+	var config testRunnerConfig
+
+	if len(configs) >= 1 {
+		config = configs[0]
+	} else {
+		config = testRunnerConfig{
+			errorsOnLastStepOnly: false,
+		}
+	}
+
+	var stepNum int
+	var step Step
+
+	// wrappers so error messages can be silenced more easily
+	tErrorf := func(format string, args ...any) {
+		if !(config.errorsOnLastStepOnly && stepNum != len(steps)-1) {
+			t.Errorf(format, args...)
+		}
+	}
+	tLogf := func(format string, args ...any) {
+		if !(config.errorsOnLastStepOnly && stepNum != len(steps)-1) {
+			t.Logf(format, args...)
+		}
+	}
 
 	// clients whose transaction socket has been terminated
 	terminatedClients := make(map[model.PublicKey]struct{})
@@ -47,14 +77,19 @@ func testRunner(t *testing.T, r model.Routine, steps []Step) {
 		}
 	}
 
-	for stepNum, step := range steps {
+	for stepNum, step = range steps {
+
+		expectedOutputsRemaining := make([]ExpectedOutput, len(step.outputs))
+		copy(expectedOutputsRemaining, step.outputs)
+
+		tLogf("Step %d: %s", stepNum, step.description)
 
 		ros := r.Next(step.input)
 
 		// replace all nil public keys with the key of the step initiator
-		for _, ro := range ros {
+		for i, ro := range ros {
 			if ro.Pk == nil {
-				ro.Pk = step.input.Pk
+				ros[i].Pk = step.input.Pk
 			}
 		}
 
@@ -78,14 +113,14 @@ func testRunner(t *testing.T, r model.Routine, steps []Step) {
 			// expect at most 1 RoutineOutput per client
 			if ro.Pk == nil {
 				if nilPkSeen {
-					t.Errorf("Saw nil pk more than once in output of step %d", stepNum)
+					tErrorf("Saw nil pk more than once in output of step %d", stepNum)
 				} else {
 					nilPkSeen = true
 				}
 			} else {
 				_, pkSeen := pksSeen[*ro.Pk]
 				if pkSeen {
-					t.Errorf("Saw pk %v more than once in output of step %d", *ro.Pk, stepNum)
+					tErrorf("Saw pk %v more than once in output of step %d", *ro.Pk, stepNum)
 				} else {
 					pksSeen[*ro.Pk] = struct{}{}
 				}
@@ -94,12 +129,12 @@ func testRunner(t *testing.T, r model.Routine, steps []Step) {
 			// RoutineOutput should not be sent to a terminated client
 			if ro.Pk == nil {
 				if nilClientTerminted {
-					t.Errorf("Sent RoutineOutput to terminated nil client in step %d", stepNum)
+					tErrorf("Sent RoutineOutput to terminated nil client in step %d", stepNum)
 				}
 			} else {
 				_, terminated := terminatedClients[*ro.Pk]
 				if terminated {
-					t.Errorf("Sent RoutineOutput to terminated client %v in step %d", *ro.Pk, stepNum)
+					tErrorf("Sent RoutineOutput to terminated client %s in step %d", pkToStr(ro.Pk), stepNum)
 				}
 			}
 
@@ -122,18 +157,18 @@ func testRunner(t *testing.T, r model.Routine, steps []Step) {
 
 			// find the expected output
 			var expectedOutput *ExpectedOutput
-			for i, eo := range step.outputs {
+			for i, eo := range expectedOutputsRemaining {
 				if (eo.ro.Pk == nil && ro.Pk == nil) ||
 					(eo.ro.Pk != nil && ro.Pk != nil && *eo.ro.Pk == *ro.Pk) {
 					expectedOutput = &eo
 					// remove from list
-					step.outputs = append(step.outputs[:i], step.outputs[i+1:]...)
+					expectedOutputsRemaining = append(expectedOutputsRemaining[:i], expectedOutputsRemaining[i+1:]...)
 					break
 				}
 			}
 
 			if expectedOutput == nil {
-				t.Errorf("Unexpected output to pk %s in step %d, got %v", pkToStr(ro.Pk), stepNum, ro)
+				tErrorf("Unexpected output to pk %s in step %d, got %v", pkToStr(ro.Pk), stepNum, ro)
 				continue
 			}
 
@@ -141,11 +176,11 @@ func testRunner(t *testing.T, r model.Routine, steps []Step) {
 			if expectedOutput.verifyTimeouts {
 				if !expectedOutput.ro.TimeoutEnabled {
 					if ro.TimeoutEnabled {
-						t.Errorf("RoutineOutput to pk %s in step %d should not have timeout enabled. Got %v", pkToStr(ro.Pk), stepNum, ro)
+						tErrorf("RoutineOutput to pk %s in step %d should not have timeout enabled. Got %v", pkToStr(ro.Pk), stepNum, ro)
 					}
 				} else {
 					if !ro.TimeoutEnabled || ro.TimeoutDuration != expectedOutput.ro.TimeoutDuration {
-						t.Errorf("RoutineOutput to pk %s in step %d should have had a timeout of duration %v. Got %v", pkToStr(ro.Pk), stepNum, expectedOutput.ro.TimeoutDuration, ro)
+						tErrorf("RoutineOutput to pk %s in step %d should have had a timeout of duration %v. Got %v", pkToStr(ro.Pk), stepNum, expectedOutput.ro.TimeoutDuration, ro)
 					}
 				}
 			}
@@ -154,7 +189,7 @@ func testRunner(t *testing.T, r model.Routine, steps []Step) {
 			numMsgsExpected := len(expectedOutput.ro.Msgs)
 			numMsgsGot := len(ro.Msgs)
 			if numMsgsExpected != numMsgsGot {
-				t.Errorf("Expected %d messages to be sent to pk %s in step %d. Got %d messages", numMsgsExpected, pkToStr(ro.Pk), stepNum, numMsgsGot)
+				tErrorf("Expected %d message(s) for pk %s in step %d. Got %d message(s)", numMsgsExpected, pkToStr(ro.Pk), stepNum, numMsgsGot)
 			}
 			for i := 0; i < min(numMsgsExpected, numMsgsGot); i++ {
 				msgGot := ro.Msgs[i]
@@ -165,7 +200,7 @@ func testRunner(t *testing.T, r model.Routine, steps []Step) {
 				result, err := gojsonschema.Validate(schemaLoader, outputLoader)
 
 				if err != nil {
-					t.Errorf("%s. Expected message %d sent to client with pk %s in step %d to match schema: %s\nGot: %s", err.Error(), i, pkToStr(ro.Pk), stepNum, msgExpectedSchema, msgGot)
+					tErrorf("%s. Expected message %d sent to client with pk %s in step %d to match schema: %s\nGot: %s", err.Error(), i, pkToStr(ro.Pk), stepNum, msgExpectedSchema, msgGot)
 				} else if !result.Valid() {
 					t.Errorf("%s. Expected message %d sent to client with pk %s in step %d to match schema: %s\nGot: %s", formatJSONError(result), i, pkToStr(ro.Pk), stepNum, msgExpectedSchema, msgGot)
 				}
@@ -173,24 +208,24 @@ func testRunner(t *testing.T, r model.Routine, steps []Step) {
 
 			// compare Done
 			if expectedOutput.ro.Done != ro.Done {
-				t.Errorf("Expected client RoutineOutput to client %s in step %d to have done=%v. Got %v", pkToStr(ro.Pk), stepNum, expectedOutput.ro.Done, ro.Done)
+				tErrorf("Expected client RoutineOutput to client %s in step %d to have done=%v. Got %v", pkToStr(ro.Pk), stepNum, expectedOutput.ro.Done, ro.Done)
 			}
 		}
 
 		// check that all expected ros were sent
 		// if there are some outputs left over here then they were not fulfilled
-		for _, eo := range step.outputs {
-			t.Errorf("Expected a RoutineOutput to be sent to pk %s in step %d", pkToStr(eo.ro.Pk), stepNum)
+		for _, eo := range expectedOutputsRemaining {
+			tErrorf("Expected a RoutineOutput for pk %s in step %d", pkToStr(eo.ro.Pk), stepNum)
 		}
 
 	}
 
 	// check that all transaction sockets have been closed
 	if nilClientActive {
-		t.Errorf("Transaction socket to nil client still open after test")
+		tErrorf("Transaction socket to nil client still open after test")
 	}
 	for pk := range activeClients {
-		t.Errorf("Transaction socket to client %v still open after test", pk)
+		tErrorf("Transaction socket to client %s still open after test", pkToStr(&pk))
 	}
 
 }

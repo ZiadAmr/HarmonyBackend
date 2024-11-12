@@ -1,7 +1,10 @@
 package routines
 
 import (
+	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"harmony/backend/model"
 	"strings"
 
 	"github.com/xeipuuv/gojsonschema"
@@ -25,6 +28,10 @@ func MakeJSONError(msg ...string) string {
 	}
 	b, _ := json.Marshal(JsonError{Terminate: "cancel", Error: msg[0]})
 	return string(b)
+}
+
+func terminateDoneJSONMsg() string {
+	return `{"terminate":"done"}`
 }
 
 // error messages to send to the client should look like this.
@@ -67,4 +74,19 @@ func formatJSONError(result *gojsonschema.Result) string {
 var routineContructorImplementations = RoutineConstructors{
 	NewComeOnline:                newComeOnline,
 	NewEstablishConnectionToPeer: newEstablishConnectionToPeer,
+}
+
+func parsePublicKey(pkstr string) (*model.PublicKey, error) {
+	if len(pkstr) != model.KEYLEN*2 {
+		return nil, errors.New("key incorrect length")
+	}
+	pk, err := hex.DecodeString(pkstr)
+	if err != nil {
+		return nil, err
+	}
+	return (*model.PublicKey)(pk), nil
+}
+
+func publicKeyToString(pk model.PublicKey) string {
+	return hex.EncodeToString(pk[:])
 }
