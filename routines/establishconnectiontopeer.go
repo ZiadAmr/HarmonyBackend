@@ -40,7 +40,6 @@ func (r *EstablishConnectionToPeer) Next(args model.RoutineInput) []model.Routin
 		// note: assumption I am making here: if the pkA is set that means that pkA is online, same for pkB
 		// these are never explicitly unset, however in the correct operation pkA and pkB's transaction sockets are closed at the same time
 		// therefore it is not possible to receieve a timeout or a client close when only 1 of A and B has been terminated
-		// A closes, B is open
 		ros := ectpError(nil, "Timeout")
 
 		if r.pkA != nil && r.pkB != nil {
@@ -66,6 +65,10 @@ func (r *EstablishConnectionToPeer) Next(args model.RoutineInput) []model.Routin
 		return []model.RoutineOutput{}
 
 	case model.RoutineMsgType_UsrMsg:
+
+		if isClientCancelMsg(args.Msg) {
+			return r.cancel(args)
+		}
 		switch r.state {
 		case ectp_entry:
 			return r.entry(args)
@@ -82,6 +85,26 @@ func (r *EstablishConnectionToPeer) Next(args model.RoutineInput) []model.Routin
 		panic("unrecognized message type")
 	}
 
+}
+
+// client sends a {"terminate":"cancel"} message.
+func (r *EstablishConnectionToPeer) cancel(args model.RoutineInput) []model.RoutineOutput {
+	if r.state == ectp_entry {
+		return []model.RoutineOutput{{
+			Done: true,
+		}}
+	} else {
+		var peer = r.pkA
+		if *args.Pk == *r.pkA {
+			peer = r.pkB
+		}
+		return []model.RoutineOutput{
+			{
+				Done: true,
+			},
+			ectpError(peer, "Peer cancelled the transaction")[0],
+		}
+	}
 }
 
 var entrySchema = func() *gojsonschema.Schema {

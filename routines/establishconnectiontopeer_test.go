@@ -163,6 +163,8 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 						ectpStepPkADisconnect,
 						ectpStepPkBDisconnect,
 						ectpStepPkBTimeout,
+						ectpStepPkACancel,
+						ectpStepPkBCancel,
 						{
 							description: "B sends bad input",
 							input: model.RoutineInput{
@@ -189,6 +191,8 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 						ectpStepPkADisconnect,
 						ectpStepPkBDisconnect,
 						ectpStepPkATimeout,
+						ectpStepPkACancel,
+						ectpStepPkBCancel,
 						{
 							description: "A sends bad input",
 							input: model.RoutineInput{
@@ -217,6 +221,8 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 						ectpStepPkBDisconnect,
 						ectpStepPkATimeout,
 						ectpStepPkBTimeout,
+						ectpStepPkACancel,
+						ectpStepPkBCancel,
 						{
 							description: "A sends bad input",
 							input: model.RoutineInput{
@@ -251,6 +257,8 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 						ectpStepPkADisconnect,
 						ectpStepPkBDisconnect,
 						ectpStepPkBTimeout,
+						ectpStepPkACancel,
+						ectpStepPkBCancel,
 						{
 							description: "A sends another ice candidate after the final once",
 							input:       ectpStepIceAToB.input,
@@ -272,6 +280,8 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 						ectpStepPkADisconnect,
 						ectpStepPkBDisconnect,
 						ectpStepPkATimeout,
+						ectpStepPkACancel,
+						ectpStepPkBCancel,
 						{
 							description: "B sends another message candidate after the final once",
 							input:       ectpStepIceBtoA.input,
@@ -777,6 +787,53 @@ var ectpStepPkBDisconnect = Step{
 		Pk:      &pkB,
 	},
 	outputs: ectpOutputPkBDisconnectedToA,
+}
+
+var ectpStepPkACancel = Step{
+	description: "A cancels",
+	input: model.RoutineInput{
+		MsgType: model.RoutineMsgType_UsrMsg,
+		Pk:      &pkA,
+		Msg:     `{"terminate":"cancel"}`,
+	},
+	outputs: []ExpectedOutput{
+		{
+			ro: model.RoutineOutput{
+				Pk:   &pkA,
+				Done: true,
+			},
+		},
+		{
+			ro: model.RoutineOutput{
+				Pk:   &pkB,
+				Msgs: []string{errorSchemaString("Peer cancelled the transaction")},
+				Done: true,
+			},
+		},
+	},
+}
+var ectpStepPkBCancel = Step{
+	description: "B cancels",
+	input: model.RoutineInput{
+		MsgType: model.RoutineMsgType_UsrMsg,
+		Pk:      &pkB,
+		Msg:     `{"terminate":"cancel"}`,
+	},
+	outputs: []ExpectedOutput{
+		{
+			ro: model.RoutineOutput{
+				Pk:   &pkB,
+				Done: true,
+			},
+		},
+		{
+			ro: model.RoutineOutput{
+				Pk:   &pkA,
+				Msgs: []string{errorSchemaString("Peer cancelled the transaction")},
+				Done: true,
+			},
+		},
+	},
 }
 
 var ectpStepPkATimeout = Step{
