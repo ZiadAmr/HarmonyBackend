@@ -32,6 +32,22 @@ var hub = model.NewHub()
 
 func main() {
 
+	// // set up profiling
+	// f, err := os.Create("cpu.prof")
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	// defer f.Close()
+
+	// if err := pprof.StartCPUProfile(f); err != nil {
+	// 	log.Fatal(err)
+	// }
+
+	// go func() {
+	// 	time.Sleep(60 * time.Second)
+	// 	pprof.StopCPUProfile()
+	// }()
+
 	router := gin.Default()
 
 	// Main entry point

@@ -299,6 +299,7 @@ func (c *Client) routeTransactionSocket(ts *transactionSocket) {
 
 			if !ok {
 				roChanClosed = true
+				ts.roChan = nil
 				if allClosed() {
 					return
 				} else {
@@ -316,6 +317,7 @@ func (c *Client) routeTransactionSocket(ts *transactionSocket) {
 		case _, ok := <-ts.clientCloseChan:
 			if !ok {
 				clientCloseChanClosed = true
+				ts.clientCloseChan = nil
 				if allClosed() {
 					return
 				} else {
@@ -343,6 +345,7 @@ func (c *Client) routeTransactionSocket(ts *transactionSocket) {
 				// this ensures that the route transaction goroutine won't be blocked if it tries to send a ro to us - riChan buffer can empty so that we can eventually send the riw
 				roChanWasClosedDuringThis := c.sendMessageAndAvoidRoChanDeadlock(riw, ts)
 				if roChanWasClosedDuringThis {
+
 					roChanClosed = true
 				}
 			}
@@ -351,6 +354,8 @@ func (c *Client) routeTransactionSocket(ts *transactionSocket) {
 
 		// timeout
 		case <-ts.status.timeoutTimer:
+
+			ts.status.timeoutTimer = nil
 
 			if ts.status.done {
 				continue
@@ -380,6 +385,7 @@ func (c *Client) routeTransactionSocket(ts *transactionSocket) {
 		case msg, ok := <-ts.clientMsgChan:
 
 			if !ok {
+				ts.clientMsgChan = nil
 				clientMsgChanClosed = true
 				if allClosed() {
 					return
@@ -440,6 +446,7 @@ AntiDeadlockLoop:
 		// if blocked we can read from rochan to allow the richan buffer to empty
 		case ro, ok := <-ts.roChan:
 			if !ok {
+				ts.roChan = nil
 				roChanClosed = true
 				continue
 			}
