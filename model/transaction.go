@@ -85,6 +85,7 @@ func (t *transaction) route(hub *Hub) {
 func (t *transaction) distributeRoutineOutputs(hub *Hub, closedRoChans *map[chan RoutineOutput]struct{}, senderRoChan chan RoutineOutput, ros []RoutineOutput) {
 
 	for _, routineOutput := range ros {
+
 		if routineOutput.Pk == nil {
 			senderRoChan <- routineOutput
 			if routineOutput.Done {
@@ -92,12 +93,13 @@ func (t *transaction) distributeRoutineOutputs(hub *Hub, closedRoChans *map[chan
 				close(senderRoChan)
 			}
 		} else {
+			// find the rochan corresponding to pk
 			roChan, exists := t.pkToROChan[*routineOutput.Pk]
 			if exists {
 				roChan <- routineOutput
 				if routineOutput.Done {
-					(*closedRoChans)[senderRoChan] = struct{}{}
-					close(senderRoChan)
+					(*closedRoChans)[roChan] = struct{}{}
+					close(roChan)
 				}
 			} else {
 				// todo need to create a new transaction if it does not exist
@@ -112,8 +114,8 @@ func (t *transaction) distributeRoutineOutputs(hub *Hub, closedRoChans *map[chan
 					go peerClient.routeTransactionSocket(tSocket)
 					tSocket.roChan <- routineOutput
 					if routineOutput.Done {
-						(*closedRoChans)[roChan] = struct{}{}
-						close(roChan)
+						(*closedRoChans)[tSocket.roChan] = struct{}{}
+						close(tSocket.roChan)
 					}
 				}
 			}

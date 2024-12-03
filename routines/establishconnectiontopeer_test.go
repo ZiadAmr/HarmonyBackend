@@ -5,7 +5,10 @@ import (
 	"harmony/backend/model"
 	"strconv"
 	"testing"
+	"time"
 )
+
+const timeoutDuration = 10 * time.Second
 
 func TestEstablishConnectionToPeer(t *testing.T) {
 
@@ -87,6 +90,38 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 	})
 
 	t.Run("Invalid inputs", func(t *testing.T) {
+
+		t.Run("User has not provided their public key", func(t *testing.T) {
+
+			test := []Step{
+				{
+					description: "A sends a request without having provided their public key",
+					input: model.RoutineInput{
+						MsgType: model.RoutineMsgType_UsrMsg,
+						Pk:      nil,
+						Msg: `{
+							"initiate": "sendConnectionRequest",
+							"key": "` + hex.EncodeToString(pkB[:]) + `"
+						}`,
+					},
+					outputs: []ExpectedOutput{
+						{
+							ro: model.RoutineOutput{
+								Pk:   nil,
+								Msgs: []string{errorSchemaString("You have not provided a public key")},
+								Done: true,
+							},
+						},
+					},
+				},
+			}
+
+			client := &model.Client{}
+			hub := model.NewHub()
+			ectp := newEstablishConnectionToPeer(client, hub)
+
+			testRunner(t, ectp, test)
+		})
 
 		t.Run("Friend is offline", func(t *testing.T) {
 			tests := [][]Step{
@@ -514,9 +549,12 @@ var ectpStepInitiateOnline = Step{
 	},
 	outputs: []ExpectedOutput{
 		{
+			verifyTimeouts: true,
 			ro: model.RoutineOutput{
-				Pk:   &pkB,
-				Msgs: []string{initiateToB},
+				Pk:              &pkB,
+				Msgs:            []string{initiateToB},
+				TimeoutEnabled:  true,
+				TimeoutDuration: timeoutDuration,
 			},
 		},
 	},
@@ -559,9 +597,12 @@ var ectpStepAcceptAndOffer = Step{
 	},
 	outputs: []ExpectedOutput{
 		{
+			verifyTimeouts: true,
 			ro: model.RoutineOutput{
-				Pk:   &pkA,
-				Msgs: []string{acceptAndOfferToA(sdpOffer)},
+				Pk:              &pkA,
+				Msgs:            []string{acceptAndOfferToA(sdpOffer)},
+				TimeoutEnabled:  true,
+				TimeoutDuration: timeoutDuration,
 			},
 		},
 	},
@@ -612,9 +653,12 @@ var ectpStepAnswer = Step{
 	},
 	outputs: []ExpectedOutput{
 		{
+			verifyTimeouts: true,
 			ro: model.RoutineOutput{
-				Pk:   &pkB,
-				Msgs: []string{answerToB(sdpAnswer)},
+				Pk:              &pkB,
+				Msgs:            []string{answerToB(sdpAnswer)},
+				TimeoutEnabled:  true,
+				TimeoutDuration: timeoutDuration,
 			},
 		},
 	},
@@ -634,9 +678,12 @@ var ectpStepIceAToB = Step{
 	},
 	outputs: []ExpectedOutput{
 		{
+			verifyTimeouts: true,
 			ro: model.RoutineOutput{
-				Pk:   &pkB,
-				Msgs: []string{iceCandidate(ICECandidate0)},
+				Pk:              &pkB,
+				Msgs:            []string{iceCandidate(ICECandidate0)},
+				TimeoutEnabled:  true,
+				TimeoutDuration: timeoutDuration,
 			},
 		},
 	},
@@ -656,9 +703,12 @@ var ectpStepIceBtoA = Step{
 	},
 	outputs: []ExpectedOutput{
 		{
+			verifyTimeouts: true,
 			ro: model.RoutineOutput{
-				Pk:   &pkA,
-				Msgs: []string{iceCandidate(ICECandidate1)},
+				Pk:              &pkA,
+				Msgs:            []string{iceCandidate(ICECandidate1)},
+				TimeoutEnabled:  true,
+				TimeoutDuration: timeoutDuration,
 			},
 		},
 	},
@@ -678,9 +728,12 @@ var ectpStepFinalIceA = Step{
 	},
 	outputs: []ExpectedOutput{
 		{
+			verifyTimeouts: true,
 			ro: model.RoutineOutput{
-				Pk:   &pkB,
-				Msgs: []string{iceCandidate(ICECandidateDone)},
+				Pk:              &pkB,
+				Msgs:            []string{iceCandidate(ICECandidateDone)},
+				TimeoutEnabled:  true,
+				TimeoutDuration: timeoutDuration,
 			},
 		},
 	},
@@ -731,10 +784,12 @@ var ectpStepFinalIceB = Step{
 	},
 	outputs: []ExpectedOutput{
 		{
-			// both clients have finished sending messages, send terminate:done to both
+			verifyTimeouts: true,
 			ro: model.RoutineOutput{
-				Pk:   &pkA,
-				Msgs: []string{iceCandidate(ICECandidateDone)},
+				Pk:              &pkA,
+				Msgs:            []string{iceCandidate(ICECandidateDone)},
+				TimeoutEnabled:  true,
+				TimeoutDuration: timeoutDuration,
 			},
 		},
 	},

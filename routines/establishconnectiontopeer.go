@@ -4,11 +4,14 @@ import (
 	"encoding/json"
 	"harmony/backend/model"
 	"strconv"
+	"time"
 
 	"github.com/xeipuuv/gojsonschema"
 )
 
 type ECTPState int
+
+const ectpTimeoutDuration = 10 * time.Second
 
 const (
 	ectp_entry ECTPState = iota
@@ -131,6 +134,9 @@ var entrySchema = func() *gojsonschema.Schema {
 func (r *EstablishConnectionToPeer) entry(args model.RoutineInput) []model.RoutineOutput {
 
 	// store public key of first peer
+	if args.Pk == nil {
+		return ectpError(nil, "You have not provided a public key")
+	}
 	r.pkA = args.Pk
 
 	// validate msg
@@ -157,22 +163,17 @@ func (r *EstablishConnectionToPeer) entry(args model.RoutineInput) []model.Routi
 		r.state = ectp_bAcceptOrReject
 		return []model.RoutineOutput{
 			{
-				Pk: r.pkB,
-				Msgs: []string{`{
-					"initiate": "receiveConnectionRequest",
-					"key": "` + publicKeyToString(*r.pkA) + `"
-				}`},
+				Pk:              r.pkB,
+				Msgs:            []string{`{"initiate":"receiveConnectionRequest","key":"` + publicKeyToString(*r.pkA) + `"}`},
+				TimeoutEnabled:  true,
+				TimeoutDuration: ectpTimeoutDuration,
 			},
 		}
 	} else {
 		return []model.RoutineOutput{
 			{
-				Pk: r.pkA,
-				Msgs: []string{`{
-					"peerStatus": "offline",
-					"forwarded": null,
-					"terminate": "done"
-				}`},
+				Pk:   r.pkA,
+				Msgs: []string{`{"peerStatus":"offline","forwarded":null,"terminate":"done"}`},
 				Done: true,
 			},
 		}
@@ -256,14 +257,8 @@ func (r *EstablishConnectionToPeer) bAcceptOrReject(args model.RoutineInput) []m
 	case "reject":
 		return []model.RoutineOutput{
 			{
-				Pk: r.pkA,
-				Msgs: []string{`{
-					"peerStatus": "online",
-					"forwarded": {
-						"type": "reject"
-					},
-					"terminate": "done"
-				}`},
+				Pk:   r.pkA,
+				Msgs: []string{`{"peerStatus":"online","forwarded":{"type":"reject"},"terminate":"done"}`},
 				Done: true,
 			},
 			{
@@ -310,8 +305,10 @@ func (r *EstablishConnectionToPeer) bAcceptOrReject(args model.RoutineInput) []m
 		r.state = ectp_aSdpAnswer
 		return []model.RoutineOutput{
 			{
-				Pk:   r.pkA,
-				Msgs: []string{string(msgToA)},
+				Pk:              r.pkA,
+				Msgs:            []string{string(msgToA)},
+				TimeoutEnabled:  true,
+				TimeoutDuration: ectpTimeoutDuration,
 			},
 		}
 
@@ -403,8 +400,10 @@ func (r *EstablishConnectionToPeer) aSdpAnswer(args model.RoutineInput) []model.
 	r.state = ectp_iceCandidates
 	return []model.RoutineOutput{
 		{
-			Pk:   r.pkB,
-			Msgs: []string{string(msgToB)},
+			Pk:              r.pkB,
+			Msgs:            []string{string(msgToB)},
+			TimeoutEnabled:  true,
+			TimeoutDuration: ectpTimeoutDuration,
 		},
 	}
 }
@@ -548,8 +547,10 @@ func (r *EstablishConnectionToPeer) iceCandidates(args model.RoutineInput) []mod
 	} else {
 		return []model.RoutineOutput{
 			{
-				Pk:   toPk,
-				Msgs: []string{string(forwardedStr)},
+				Pk:              toPk,
+				Msgs:            []string{string(forwardedStr)},
+				TimeoutEnabled:  true,
+				TimeoutDuration: ectpTimeoutDuration,
 			},
 		}
 	}

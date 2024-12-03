@@ -142,7 +142,7 @@ func (c *Client) Route(hub *Hub, makeRoutine func() Routine) {
 func (c *Client) newTransactionSocket(transaction *transaction, id [IDLEN]byte) *transactionSocket {
 	roChan := make(chan RoutineOutput)
 	return &transactionSocket{
-		clientMsgChan:   make(chan string, 1),
+		clientMsgChan:   make(chan string, 50),
 		clientCloseChan: make(chan struct{}),
 		roChan:          roChan,
 		transaction:     transaction,

@@ -79,7 +79,7 @@ func TestMasterRoutine(t *testing.T) {
 			routineConstructorName string
 		}{
 			{"comeOnline", "NewComeOnline"},
-			{"establishConnectionToPeer", "NewEstablishConnectionToPeer"},
+			{"sendConnectionRequest", "NewEstablishConnectionToPeer"},
 		}
 
 		for _, tt := range tests {
