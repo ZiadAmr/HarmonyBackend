@@ -39,6 +39,7 @@ func TestMasterRoutine(t *testing.T) {
 				routineImpls := RoutineConstructors{
 					NewComeOnline:                incrementCallCount,
 					NewEstablishConnectionToPeer: incrementCallCount,
+					NewFriendRequest:             incrementCallCount,
 				}
 
 				mockClient := &model.Client{}
@@ -80,6 +81,7 @@ func TestMasterRoutine(t *testing.T) {
 		}{
 			{"comeOnline", "NewComeOnline"},
 			{"sendConnectionRequest", "NewEstablishConnectionToPeer"},
+			{"sendFriendRequest", "NewFriendRequest"},
 		}
 
 		for _, tt := range tests {
@@ -95,6 +97,10 @@ func TestMasterRoutine(t *testing.T) {
 					},
 					NewEstablishConnectionToPeer: func(c *model.Client, h *model.Hub) model.Routine {
 						calls = append(calls, "NewEstablishConnectionToPeer")
+						return &EmptyRoutine{}
+					},
+					NewFriendRequest: func(c *model.Client, h *model.Hub) model.Routine {
+						calls = append(calls, "NewFriendRequest")
 						return &EmptyRoutine{}
 					},
 				}

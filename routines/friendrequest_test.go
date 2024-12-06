@@ -164,7 +164,7 @@ func TestFriendRequest(t *testing.T) {
 						input: model.RoutineInput{
 							MsgType: model.RoutineMsgType_UsrMsg,
 							Pk:      &pkB,
-							Msg:     `{"what": true}`,
+							Msg:     `"{forward":{"type":"reject"},"what": true}`,
 						},
 						outputs: outputPkBErrorToBoth,
 					},
@@ -174,6 +174,19 @@ func TestFriendRequest(t *testing.T) {
 							MsgType: model.RoutineMsgType_UsrMsg,
 							Pk:      &pkB,
 							Msg:     `{`,
+						},
+						outputs: outputPkBErrorToBoth,
+					},
+					{
+						description: "B sends invalid response (not reject, accept, or pending)",
+						input: model.RoutineInput{
+							MsgType: model.RoutineMsgType_UsrMsg,
+							Pk:      &pkB,
+							Msg: `{
+								"forward": {
+									"type": "\""
+								}
+							}`,
 						},
 						outputs: outputPkBErrorToBoth,
 					},
