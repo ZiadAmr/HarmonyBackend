@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const timeoutDuration = 10 * time.Second
+const ectpExpectedTimeoutDuration = 10 * time.Second
 
 func TestEstablishConnectionToPeer(t *testing.T) {
 
@@ -133,7 +133,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 							Pk:      &pkA,
 							Msg:     `{"initiate": "sendConnectionRequest"}`,
 						},
-						outputs: ectpOutputPkAError,
+						outputs: outputPkAError,
 					},
 				},
 				{
@@ -144,7 +144,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 							Pk:      &pkA,
 							Msg:     `{"initiate": "sendConnectionRequest", "key":"4"}`,
 						},
-						outputs: ectpOutputPkAError,
+						outputs: outputPkAError,
 					},
 				},
 				{
@@ -155,7 +155,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 							Pk:      &pkA,
 							Msg:     `)`,
 						},
-						outputs: ectpOutputPkAError,
+						outputs: outputPkAError,
 					},
 				},
 				{
@@ -166,7 +166,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 							Pk:      &pkA,
 							Msg:     `{"initiate": "sendConnectionRequest", "key":"` + hex.EncodeToString(pkB[:]) + `", "extraProperty!":{}}`,
 						},
-						outputs: ectpOutputPkAError,
+						outputs: outputPkAError,
 					},
 				},
 			}
@@ -195,11 +195,11 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 						ectpStepInitiateOnline,
 					},
 					cases: []Step{
-						ectpStepPkADisconnect,
-						ectpStepPkBDisconnect,
-						ectpStepPkBTimeout,
-						ectpStepPkACancel,
-						ectpStepPkBCancel,
+						stepPkADisconnect,
+						stepPkBDisconnect,
+						stepPkBTimeout,
+						stepPkACancel,
+						stepPkBCancel,
 						{
 							description: "B sends bad input",
 							input: model.RoutineInput{
@@ -207,12 +207,12 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 								Pk:      &pkB,
 								Msg:     "lol",
 							},
-							outputs: ectpOutputPkBErrorToBoth,
+							outputs: outputPkBErrorToBoth,
 						},
 						{
 							description: "A sends a message out of order",
 							input:       ectpStepAnswer.input,
-							outputs:     ectpOutputPkAErrorToBoth,
+							outputs:     outputPkAErrorToBoth,
 						},
 					},
 				},
@@ -223,11 +223,11 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 						ectpStepAcceptAndOffer,
 					},
 					cases: []Step{
-						ectpStepPkADisconnect,
-						ectpStepPkBDisconnect,
-						ectpStepPkATimeout,
-						ectpStepPkACancel,
-						ectpStepPkBCancel,
+						stepPkADisconnect,
+						stepPkBDisconnect,
+						stepPkATimeout,
+						stepPkACancel,
+						stepPkBCancel,
 						{
 							description: "A sends bad input",
 							input: model.RoutineInput{
@@ -235,12 +235,12 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 								Pk:      &pkA,
 								Msg:     "xd",
 							},
-							outputs: ectpOutputPkAErrorToBoth,
+							outputs: outputPkAErrorToBoth,
 						},
 						{
 							description: "B sends a message out of order",
 							input:       ectpStepIceBtoA.input,
-							outputs:     ectpOutputPkBErrorToBoth,
+							outputs:     outputPkBErrorToBoth,
 						},
 					},
 				},
@@ -252,12 +252,12 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 						ectpStepAnswer,
 					},
 					cases: []Step{
-						ectpStepPkADisconnect,
-						ectpStepPkBDisconnect,
-						ectpStepPkATimeout,
-						ectpStepPkBTimeout,
-						ectpStepPkACancel,
-						ectpStepPkBCancel,
+						stepPkADisconnect,
+						stepPkBDisconnect,
+						stepPkATimeout,
+						stepPkBTimeout,
+						stepPkACancel,
+						stepPkBCancel,
 						{
 							description: "A sends bad input",
 							input: model.RoutineInput{
@@ -265,7 +265,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 								Pk:      &pkA,
 								Msg:     "lol",
 							},
-							outputs: ectpOutputPkAErrorToBoth,
+							outputs: outputPkAErrorToBoth,
 						},
 						{
 							description: "B sends bad input",
@@ -274,7 +274,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 								Pk:      &pkB,
 								Msg:     "lol",
 							},
-							outputs: ectpOutputPkBErrorToBoth,
+							outputs: outputPkBErrorToBoth,
 						},
 					},
 				},
@@ -289,15 +289,15 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 						ectpStepFinalIceA,
 					},
 					cases: []Step{
-						ectpStepPkADisconnect,
-						ectpStepPkBDisconnect,
-						ectpStepPkBTimeout,
-						ectpStepPkACancel,
-						ectpStepPkBCancel,
+						stepPkADisconnect,
+						stepPkBDisconnect,
+						stepPkBTimeout,
+						stepPkACancel,
+						stepPkBCancel,
 						{
 							description: "A sends another ice candidate after the final once",
 							input:       ectpStepIceAToB.input,
-							outputs:     ectpOutputPkAErrorToBoth,
+							outputs:     outputPkAErrorToBoth,
 						},
 					},
 				},
@@ -312,15 +312,15 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 						ectpStepFinalIceB,
 					},
 					cases: []Step{
-						ectpStepPkADisconnect,
-						ectpStepPkBDisconnect,
-						ectpStepPkATimeout,
-						ectpStepPkACancel,
-						ectpStepPkBCancel,
+						stepPkADisconnect,
+						stepPkBDisconnect,
+						stepPkATimeout,
+						stepPkACancel,
+						stepPkBCancel,
 						{
 							description: "B sends another message candidate after the final once",
 							input:       ectpStepIceBtoA.input,
-							outputs:     ectpOutputPkBErrorToBoth,
+							outputs:     outputPkBErrorToBoth,
 						},
 					},
 				},
@@ -351,7 +351,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 
 }
 
-const offlineToA = `{
+const ectpSchemaOfflineToA = `{
 	"$schema": "https://json-schema.org/draft/2020-12/schema",
 	"type": "object",
 	"properties": {
@@ -369,7 +369,7 @@ const offlineToA = `{
 	"additionalProperties": false
 }`
 
-var initiateToB = `{
+var ectpSchemaInitiateToB = `{
 	"$schema": "https://json-schema.org/draft/2020-12/schema",
 	"type": "object",
 	"properties": {
@@ -385,7 +385,7 @@ var initiateToB = `{
 	"additionalProperties": false
 }`
 
-const bareTerminate = `{
+const schemaBareTerminate = `{
 	"$schema": "https://json-schema.org/draft/2020-12/schema",
 	"type": "object",
 	"properties": {
@@ -398,7 +398,7 @@ const bareTerminate = `{
 }
 `
 
-const rejectToA = `{
+const ectpSchemaRejectToA = `{
 	"$schema": "https://json-schema.org/draft/2020-12/schema",
 	"type": "object",
 	"properties": {
@@ -422,7 +422,7 @@ const rejectToA = `{
 	"additionalProperties": false
 }`
 
-func acceptAndOfferToA(sdp string) string {
+func ectpSchemaAcceptAndOfferToA(sdp string) string {
 	return `{
 		"$schema": "https://json-schema.org/draft/2020-12/schema",
 		"type": "object",
@@ -457,7 +457,7 @@ func acceptAndOfferToA(sdp string) string {
 	}`
 }
 
-func answerToB(sdp string) string {
+func ectpSchemaAnswerToB(sdp string) string {
 	return `{
 		"$schema": "https://json-schema.org/draft/2020-12/schema",
 		"type": "object",
@@ -489,7 +489,7 @@ func answerToB(sdp string) string {
 	}`
 }
 
-func iceCandidate(payload string) string {
+func ectpSchemaIceCandidate(payload string) string {
 	return `{
 		"$schema": "https://json-schema.org/draft/2020-12/schema",
 		"type": "object",
@@ -552,9 +552,9 @@ var ectpStepInitiateOnline = Step{
 			verifyTimeouts: true,
 			ro: model.RoutineOutput{
 				Pk:              &pkB,
-				Msgs:            []string{initiateToB},
+				Msgs:            []string{ectpSchemaInitiateToB},
 				TimeoutEnabled:  true,
-				TimeoutDuration: timeoutDuration,
+				TimeoutDuration: ectpExpectedTimeoutDuration,
 			},
 		},
 	},
@@ -573,7 +573,7 @@ var ectpStepInitiateOffline = Step{
 		{
 			ro: model.RoutineOutput{
 				Pk:   &pkA,
-				Msgs: []string{offlineToA},
+				Msgs: []string{ectpSchemaOfflineToA},
 				Done: true,
 			},
 		},
@@ -600,9 +600,9 @@ var ectpStepAcceptAndOffer = Step{
 			verifyTimeouts: true,
 			ro: model.RoutineOutput{
 				Pk:              &pkA,
-				Msgs:            []string{acceptAndOfferToA(sdpOffer)},
+				Msgs:            []string{ectpSchemaAcceptAndOfferToA(sdpOffer)},
 				TimeoutEnabled:  true,
-				TimeoutDuration: timeoutDuration,
+				TimeoutDuration: ectpExpectedTimeoutDuration,
 			},
 		},
 	},
@@ -622,14 +622,14 @@ var ectpStepReject = Step{
 		{
 			ro: model.RoutineOutput{
 				Pk:   &pkB,
-				Msgs: []string{bareTerminate},
+				Msgs: []string{schemaBareTerminate},
 				Done: true,
 			},
 		},
 		{
 			ro: model.RoutineOutput{
 				Pk:   &pkA,
-				Msgs: []string{rejectToA},
+				Msgs: []string{ectpSchemaRejectToA},
 				Done: true,
 			},
 		},
@@ -656,9 +656,9 @@ var ectpStepAnswer = Step{
 			verifyTimeouts: true,
 			ro: model.RoutineOutput{
 				Pk:              &pkB,
-				Msgs:            []string{answerToB(sdpAnswer)},
+				Msgs:            []string{ectpSchemaAnswerToB(sdpAnswer)},
 				TimeoutEnabled:  true,
-				TimeoutDuration: timeoutDuration,
+				TimeoutDuration: ectpExpectedTimeoutDuration,
 			},
 		},
 	},
@@ -681,9 +681,9 @@ var ectpStepIceAToB = Step{
 			verifyTimeouts: true,
 			ro: model.RoutineOutput{
 				Pk:              &pkB,
-				Msgs:            []string{iceCandidate(ICECandidate0)},
+				Msgs:            []string{ectpSchemaIceCandidate(ICECandidate0)},
 				TimeoutEnabled:  true,
-				TimeoutDuration: timeoutDuration,
+				TimeoutDuration: ectpExpectedTimeoutDuration,
 			},
 		},
 	},
@@ -706,9 +706,9 @@ var ectpStepIceBtoA = Step{
 			verifyTimeouts: true,
 			ro: model.RoutineOutput{
 				Pk:              &pkA,
-				Msgs:            []string{iceCandidate(ICECandidate1)},
+				Msgs:            []string{ectpSchemaIceCandidate(ICECandidate1)},
 				TimeoutEnabled:  true,
-				TimeoutDuration: timeoutDuration,
+				TimeoutDuration: ectpExpectedTimeoutDuration,
 			},
 		},
 	},
@@ -731,9 +731,9 @@ var ectpStepFinalIceA = Step{
 			verifyTimeouts: true,
 			ro: model.RoutineOutput{
 				Pk:              &pkB,
-				Msgs:            []string{iceCandidate(ICECandidateDone)},
+				Msgs:            []string{ectpSchemaIceCandidate(ICECandidateDone)},
 				TimeoutEnabled:  true,
-				TimeoutDuration: timeoutDuration,
+				TimeoutDuration: ectpExpectedTimeoutDuration,
 			},
 		},
 	},
@@ -756,14 +756,14 @@ var ectpStepFinalIceATerminate = Step{
 			// both clients have finished sending messages, send terminate:done to both
 			ro: model.RoutineOutput{
 				Pk:   &pkB,
-				Msgs: []string{iceCandidate(ICECandidateDone), bareTerminate},
+				Msgs: []string{ectpSchemaIceCandidate(ICECandidateDone), schemaBareTerminate},
 				Done: true,
 			},
 		},
 		{
 			ro: model.RoutineOutput{
 				Pk:   &pkA,
-				Msgs: []string{bareTerminate},
+				Msgs: []string{schemaBareTerminate},
 				Done: true,
 			},
 		},
@@ -787,9 +787,9 @@ var ectpStepFinalIceB = Step{
 			verifyTimeouts: true,
 			ro: model.RoutineOutput{
 				Pk:              &pkA,
-				Msgs:            []string{iceCandidate(ICECandidateDone)},
+				Msgs:            []string{ectpSchemaIceCandidate(ICECandidateDone)},
 				TimeoutEnabled:  true,
-				TimeoutDuration: timeoutDuration,
+				TimeoutDuration: ectpExpectedTimeoutDuration,
 			},
 		},
 	},
@@ -812,39 +812,39 @@ var ectpStepFinalIceBTerminate = Step{
 			// both clients have finished sending messages, send terminate:done to both
 			ro: model.RoutineOutput{
 				Pk:   &pkA,
-				Msgs: []string{iceCandidate(ICECandidateDone), bareTerminate},
+				Msgs: []string{ectpSchemaIceCandidate(ICECandidateDone), schemaBareTerminate},
 				Done: true,
 			},
 		},
 		{
 			ro: model.RoutineOutput{
 				Pk:   &pkB,
-				Msgs: []string{bareTerminate},
+				Msgs: []string{schemaBareTerminate},
 				Done: true,
 			},
 		},
 	},
 }
 
-var ectpStepPkADisconnect = Step{
+var stepPkADisconnect = Step{
 	description: "A disconnects",
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_ClientClose,
 		Pk:      &pkA,
 	},
-	outputs: ectpOutputPkADisconnectedToB,
+	outputs: outputPkADisconnectedToB,
 }
 
-var ectpStepPkBDisconnect = Step{
+var stepPkBDisconnect = Step{
 	description: "B disconnects",
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_ClientClose,
 		Pk:      &pkB,
 	},
-	outputs: ectpOutputPkBDisconnectedToA,
+	outputs: outputPkBDisconnectedToA,
 }
 
-var ectpStepPkACancel = Step{
+var stepPkACancel = Step{
 	description: "A cancels",
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_UsrMsg,
@@ -867,7 +867,7 @@ var ectpStepPkACancel = Step{
 		},
 	},
 }
-var ectpStepPkBCancel = Step{
+var stepPkBCancel = Step{
 	description: "B cancels",
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_UsrMsg,
@@ -891,25 +891,25 @@ var ectpStepPkBCancel = Step{
 	},
 }
 
-var ectpStepPkATimeout = Step{
+var stepPkATimeout = Step{
 	description: "A times out",
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_Timeout,
 		Pk:      &pkA,
 	},
-	outputs: ectpOutputPkATimeoutToBoth,
+	outputs: outputPkATimeoutToBoth,
 }
 
-var ectpStepPkBTimeout = Step{
+var stepPkBTimeout = Step{
 	description: "B times out",
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_Timeout,
 		Pk:      &pkB,
 	},
-	outputs: ectpOutputPkBTimeoutToBoth,
+	outputs: outputPkBTimeoutToBoth,
 }
 
-var ectpOutputPkAError = []ExpectedOutput{
+var outputPkAError = []ExpectedOutput{
 	{
 		ro: model.RoutineOutput{
 			Pk:   &pkA,
@@ -919,7 +919,7 @@ var ectpOutputPkAError = []ExpectedOutput{
 	},
 }
 
-var ectpOutputPkAErrorToBoth = []ExpectedOutput{
+var outputPkAErrorToBoth = []ExpectedOutput{
 	{
 		ro: model.RoutineOutput{
 			Pk:   &pkA,
@@ -936,7 +936,7 @@ var ectpOutputPkAErrorToBoth = []ExpectedOutput{
 	},
 }
 
-var ectpOutputPkATimeoutToBoth = []ExpectedOutput{
+var outputPkATimeoutToBoth = []ExpectedOutput{
 	{
 		ro: model.RoutineOutput{
 			Pk:   &pkA,
@@ -954,7 +954,7 @@ var ectpOutputPkATimeoutToBoth = []ExpectedOutput{
 	},
 }
 
-var ectpOutputPkBErrorToBoth = []ExpectedOutput{
+var outputPkBErrorToBoth = []ExpectedOutput{
 	{
 		ro: model.RoutineOutput{
 			Pk:   &pkB,
@@ -972,7 +972,7 @@ var ectpOutputPkBErrorToBoth = []ExpectedOutput{
 	},
 }
 
-var ectpOutputPkBTimeoutToBoth = []ExpectedOutput{
+var outputPkBTimeoutToBoth = []ExpectedOutput{
 	{
 		ro: model.RoutineOutput{
 			Pk:   &pkB,
@@ -990,7 +990,7 @@ var ectpOutputPkBTimeoutToBoth = []ExpectedOutput{
 	},
 }
 
-var ectpOutputPkADisconnectedToB = []ExpectedOutput{
+var outputPkADisconnectedToB = []ExpectedOutput{
 	{
 		ro: model.RoutineOutput{
 			Pk:   &pkB,
@@ -1000,7 +1000,7 @@ var ectpOutputPkADisconnectedToB = []ExpectedOutput{
 	},
 }
 
-var ectpOutputPkBDisconnectedToA = []ExpectedOutput{
+var outputPkBDisconnectedToA = []ExpectedOutput{
 	{
 		ro: model.RoutineOutput{
 			Pk:   &pkA,
