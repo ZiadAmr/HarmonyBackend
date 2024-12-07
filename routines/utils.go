@@ -74,6 +74,7 @@ func formatJSONError(result *gojsonschema.Result) string {
 var routineContructorImplementations = RoutineConstructors{
 	NewComeOnline:                newComeOnline,
 	NewEstablishConnectionToPeer: newEstablishConnectionToPeer,
+	NewFriendRequest:             newFriendRequest,
 }
 
 func parsePublicKey(pkstr string) (*model.PublicKey, error) {

@@ -110,7 +110,7 @@ func (r *EstablishConnectionToPeer) cancel(args model.RoutineInput) []model.Rout
 	}
 }
 
-var entrySchema = func() *gojsonschema.Schema {
+var ectpEntrySchema = func() *gojsonschema.Schema {
 	errorSchemaString := `{
 		"$schema": "https://json-schema.org/draft/2020-12/schema",
 		"type": "object",
@@ -141,7 +141,7 @@ func (r *EstablishConnectionToPeer) entry(args model.RoutineInput) []model.Routi
 
 	// validate msg
 	usrMsgLoader := gojsonschema.NewStringLoader(args.Msg)
-	result, err := entrySchema.Validate(usrMsgLoader)
+	result, err := ectpEntrySchema.Validate(usrMsgLoader)
 	if err != nil {
 		return ectpError(nil, err.Error())
 	}

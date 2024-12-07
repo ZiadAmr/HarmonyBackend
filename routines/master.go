@@ -46,7 +46,7 @@ func (r *MasterRoutine) Next(args model.RoutineInput) []model.RoutineOutput {
 }
 
 // list of acceptable values of the `"initiate":` property
-var routineNames = []string{"comeOnline", "sendConnectionRequest"}
+var routineNames = []string{"comeOnline", "sendConnectionRequest", "sendFriendRequest"}
 
 // schema to look for and validate the "initiate:" property
 var initiateSchema = func() *gojsonschema.Schema {
@@ -100,6 +100,8 @@ func (r *MasterRoutine) setSubRoutineFromInitialMsg(msg string) error {
 		r.subRoutine = r.rc.NewComeOnline(r.client, r.hub)
 	case "sendConnectionRequest":
 		r.subRoutine = r.rc.NewEstablishConnectionToPeer(r.client, r.hub)
+	case "sendFriendRequest":
+		r.subRoutine = r.rc.NewFriendRequest(r.client, r.hub)
 	default:
 		return errors.New("routine does not exist")
 	}
