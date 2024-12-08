@@ -8,4 +8,5 @@ type RoutineConstructors struct {
 	NewComeOnline                RoutineConstructor
 	NewEstablishConnectionToPeer RoutineConstructor
 	NewFriendRequest             RoutineConstructor
+	NewFriendRejection           RoutineConstructor
 }

@@ -37,21 +37,21 @@ func (r *FriendRequest) Next(args model.RoutineInput) []model.RoutineOutput {
 
 	switch args.MsgType {
 	case model.RoutineMsgType_Timeout:
-		ros := ectpError(nil, "Timeout")
+		ros := frError(nil, "Timeout")
 		switch *args.Pk {
 		case *r.pkA:
-			ros = append(ros, ectpError(r.pkB, "Peer timed out")...)
+			ros = append(ros, frError(r.pkB, "Peer timed out")...)
 		case *r.pkB:
-			ros = append(ros, ectpError(r.pkA, "Peer timed out")...)
+			ros = append(ros, frError(r.pkA, "Peer timed out")...)
 		}
 		return ros
 	case model.RoutineMsgType_ClientClose:
 		// terminate the other person
 		switch *args.Pk {
 		case *r.pkA:
-			return ectpError(r.pkB, "Peer disconnected")
+			return frError(r.pkB, "Peer disconnected")
 		case *r.pkB:
-			return ectpError(r.pkA, "Peer disconnected")
+			return frError(r.pkA, "Peer disconnected")
 		default:
 			panic("unknown pk")
 		}
@@ -106,10 +106,10 @@ func (r *FriendRequest) entry(args model.RoutineInput) []model.RoutineOutput {
 	usrMsgLoader := gojsonschema.NewStringLoader(args.Msg)
 	result, err := frEntrySchema.Validate(usrMsgLoader)
 	if err != nil {
-		return ectpError(nil, err.Error())
+		return frError(nil, err.Error())
 	}
 	if !result.Valid() {
-		return ectpError(nil, formatJSONError(result))
+		return frError(nil, formatJSONError(result))
 	}
 
 	// parse msg
@@ -169,17 +169,17 @@ func (r *FriendRequest) reply(args model.RoutineInput) []model.RoutineOutput {
 
 	// check it's the correct pk
 	if args.Pk == nil || *args.Pk == *r.pkA {
-		return append(ectpError(nil, "Message send out of order"), ectpError(r.pkB, "Peer sent a malformed message")...)
+		return append(frError(nil, "Message send out of order"), frError(r.pkB, "Peer sent a malformed message")...)
 	}
 
 	// validate msg
 	usrMsgLoader := gojsonschema.NewStringLoader(args.Msg)
 	result, err := frReplySchema.Validate(usrMsgLoader)
 	if err != nil {
-		return append(ectpError(nil, err.Error()), ectpError(r.pkA, "Peer sent a malformed message")...)
+		return append(frError(nil, err.Error()), frError(r.pkA, "Peer sent a malformed message")...)
 	}
 	if !result.Valid() {
-		return append(ectpError(nil, formatJSONError(result)), ectpError(r.pkA, "Peer sent a malformed message")...)
+		return append(frError(nil, formatJSONError(result)), frError(r.pkA, "Peer sent a malformed message")...)
 	}
 
 	// parse msg

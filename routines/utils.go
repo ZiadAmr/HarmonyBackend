@@ -75,6 +75,7 @@ var routineContructorImplementations = RoutineConstructors{
 	NewComeOnline:                newComeOnline,
 	NewEstablishConnectionToPeer: newEstablishConnectionToPeer,
 	NewFriendRequest:             newFriendRequest,
+	NewFriendRejection:           newFriendRejection,
 }
 
 func parsePublicKey(pkstr string) (*model.PublicKey, error) {
