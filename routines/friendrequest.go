@@ -119,6 +119,12 @@ func (r *FriendRequest) entry(args model.RoutineInput) []model.RoutineOutput {
 	}{}
 	json.Unmarshal([]byte(args.Msg), &usrMsg)
 	r.pkB, _ = parsePublicKey(usrMsg.Key)
+
+	// check pkB is different from pkA
+	if *(r.pkA) == *(r.pkB) {
+		return ectpError(nil, "Sending a friend request to yourself is not allowed")
+	}
+
 	_, peerOnline := r.hub.GetClient(*r.pkB)
 
 	if peerOnline {

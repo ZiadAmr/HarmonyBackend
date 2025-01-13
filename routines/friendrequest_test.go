@@ -88,6 +88,38 @@ func TestFriendRequest(t *testing.T) {
 			testRunner(t, fr, test)
 		})
 
+		t.Run("User attempts to send a friend request to themself", func(t *testing.T) {
+			test := []Step{
+				{
+					description: "User sends a friend request to themself",
+					input: model.RoutineInput{
+						MsgType: model.RoutineMsgType_UsrMsg,
+						Pk:      &pkA,
+						Msg: `{
+							"initiate": "sendFriendRequest",
+							"key": "` + hex.EncodeToString(pkA[:]) + `"
+						}`,
+					},
+					outputs: []ExpectedOutput{
+						{
+							ro: model.RoutineOutput{
+								Pk:   &pkA,
+								Msgs: []string{errorSchemaString("Sending a friend request to yourself is not allowed")},
+								Done: true,
+							},
+						},
+					},
+				},
+			}
+			client := &model.Client{}
+			client.SetPublicKey(&pkA)
+			hub := model.NewHub()
+			hub.AddClient(*client.GetPublicKey(), client)
+			fr := newFriendRequest(client, hub)
+
+			testRunner(t, fr, test)
+		})
+
 		// tests where both are signed in
 		tests := []struct {
 			description  string

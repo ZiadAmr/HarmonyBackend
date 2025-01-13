@@ -123,6 +123,39 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 			testRunner(t, ectp, test)
 		})
 
+		t.Run("User tries to connect to themself", func(t *testing.T) {
+			test := []Step{
+				{
+					description: "A sends a connection request to A",
+					input: model.RoutineInput{
+						MsgType: model.RoutineMsgType_UsrMsg,
+						Pk:      &pkA,
+						Msg: `{
+							"initiate": "sendConnectionRequest",
+							"key": "` + hex.EncodeToString(pkA[:]) + `"
+						}`,
+					},
+					outputs: []ExpectedOutput{
+						{
+							ro: model.RoutineOutput{
+								Pk:   &pkA,
+								Msgs: []string{errorSchemaString("Connecting to yourself is not allowed")},
+								Done: true,
+							},
+						},
+					},
+				},
+			}
+
+			client := &model.Client{}
+			client.SetPublicKey(&pkA)
+			hub := model.NewHub()
+			hub.AddClient(pkA, client)
+			ectp := newEstablishConnectionToPeer(client, hub)
+
+			testRunner(t, ectp, test)
+		})
+
 		t.Run("Friend is offline", func(t *testing.T) {
 			tests := [][]Step{
 				{

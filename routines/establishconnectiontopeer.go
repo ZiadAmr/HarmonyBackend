@@ -157,6 +157,11 @@ func (r *EstablishConnectionToPeer) entry(args model.RoutineInput) []model.Routi
 	json.Unmarshal([]byte(args.Msg), &usrMsg)
 	r.pkB, _ = parsePublicKey(usrMsg.Key)
 
+	// check pkB is different from pkA
+	if *(r.pkA) == *(r.pkB) {
+		return ectpError(nil, "Connecting to yourself is not allowed")
+	}
+
 	_, peerOnline := r.hub.GetClient(*r.pkB)
 
 	if peerOnline {

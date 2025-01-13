@@ -68,12 +68,44 @@ func TestFriendRejection(t *testing.T) {
 			}
 
 			clientA := &model.Client{}
-			clientA.SetPublicKey(&pkA)
 			clientB := &model.Client{}
 			clientB.SetPublicKey(&pkB)
 			hub := model.NewHub()
-			hub.AddClient(*clientA.GetPublicKey(), clientA)
 			hub.AddClient(*clientB.GetPublicKey(), clientB)
+
+			fr := newFriendRejection(clientA, hub)
+
+			testRunner(t, fr, test)
+		})
+
+		t.Run("User sends a message to themself", func(t *testing.T) {
+			test := []Step{
+				{
+					description: "User sends a rejection to themself",
+					input: model.RoutineInput{
+						MsgType: model.RoutineMsgType_UsrMsg,
+						Pk:      &pkA,
+						Msg: `{
+							"initiate": "sendFriendRejection",
+							"key": "` + hex.EncodeToString(pkA[:]) + `"
+						}`,
+					},
+					outputs: []ExpectedOutput{
+						{
+							ro: model.RoutineOutput{
+								Pk:   &pkA,
+								Msgs: []string{errorSchemaString("You can't reject yourself")},
+								Done: true,
+							},
+						},
+					},
+				},
+			}
+
+			clientA := &model.Client{}
+			clientA.SetPublicKey(&pkA)
+			hub := model.NewHub()
+			hub.AddClient(*clientA.GetPublicKey(), clientA)
 
 			fr := newFriendRejection(clientA, hub)
 
