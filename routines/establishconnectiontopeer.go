@@ -11,7 +11,7 @@ import (
 
 type ECTPState int
 
-const ectpTimeoutDuration = 10 * time.Second
+const ectpTimeoutDuration = 20 * time.Second
 
 const (
 	ectp_entry ECTPState = iota
@@ -438,7 +438,7 @@ var iceCandidatesSchema = func() *gojsonschema.Schema {
 								"type": "string"
 							}
 						},
-						"required": ["candidate","sdpMLineIndex","sdpMid","usernameFragment"],
+						"required": ["candidate","sdpMLineIndex"],
 						"additionalProperties": false
 					}
 				},
@@ -493,8 +493,8 @@ func (r *EstablishConnectionToPeer) iceCandidates(args model.RoutineInput) []mod
 			Payload struct {
 				Candidate        string `json:"candidate"`
 				SdpMLineIndex    int    `json:"sdpMLineIndex"`
-				SdpMid           string `json:"sdpMid"`
-				UsernameFragment string `json:"usernameFragment"`
+				SdpMid           string `json:"sdpMid,omitempty"`
+				UsernameFragment string `json:"usernameFragment,omitempty"`
 			} `json:"payload"`
 		} `json:"forward"`
 	}{}
@@ -523,8 +523,8 @@ func (r *EstablishConnectionToPeer) iceCandidates(args model.RoutineInput) []mod
 			Payload struct {
 				Candidate        string `json:"candidate"`
 				SdpMLineIndex    int    `json:"sdpMLineIndex"`
-				SdpMid           string `json:"sdpMid"`
-				UsernameFragment string `json:"usernameFragment"`
+				SdpMid           string `json:"sdpMid,omitempty"`
+				UsernameFragment string `json:"usernameFragment,omitempty"`
 			} `json:"payload"`
 		} `json:"forwarded"`
 	}{}

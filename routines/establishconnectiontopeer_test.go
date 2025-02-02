@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const ectpExpectedTimeoutDuration = 10 * time.Second
+const ectpExpectedTimeoutDuration = 20 * time.Second
 
 func TestEstablishConnectionToPeer(t *testing.T) {
 
@@ -559,9 +559,7 @@ const ICECandidate0 = `{
 }`
 const ICECandidate1 = `{
 	"candidate":"another actual ice candidate",
-	"sdpMLineIndex":0,
-	"sdpMid":"...",
-	"usernameFragment":"..."
+	"sdpMLineIndex":0
 }`
 const ICECandidateDone = `{
 	"candidate":"",
