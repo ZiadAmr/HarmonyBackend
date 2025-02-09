@@ -11,4 +11,7 @@ RUN go build -v -o /usr/local/bin/app .
 
 EXPOSE 8080
 
+# disable debug mode
+ENV GIN_MODE=release
+
 CMD ["app"]

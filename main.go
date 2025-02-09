@@ -27,24 +27,45 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
+// pointers to online clients stored in here
+var hub = model.NewHub()
+
 func main() {
 
+	// // set up profiling
+	// f, err := os.Create("cpu.prof")
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	// defer f.Close()
+
+	// if err := pprof.StartCPUProfile(f); err != nil {
+	// 	log.Fatal(err)
+	// }
+
+	// go func() {
+	// 	time.Sleep(60 * time.Second)
+	// 	pprof.StopCPUProfile()
+	// }()
+
 	router := gin.Default()
-	router.GET("/test", getTest)
 
 	// Main entry point
-	router.GET("/testMultiplexWs", func(c *gin.Context) {
+	router.GET("/ws", handleWs)
 
-		// upgrade to websocket protocol
-		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	router.GET("/test", getTest)
+
+	router.GET("/chatDemo", func(ctx *gin.Context) {
+		conn, err := upgrader.Upgrade(ctx.Writer, ctx.Request, nil)
 		if err != nil {
 			return
 		}
-		// defer means it executes after the function returns.
 		defer conn.Close()
 
 		client := model.MakeClient(conn)
-		client.Route(routines.MasterTestRoutine)
+		client.Route(hub, func() model.Routine {
+			return routines.NewChatRoutineDemo(&client, hub)
+		})
 	})
 
 	router.Run("0.0.0.0:8080")

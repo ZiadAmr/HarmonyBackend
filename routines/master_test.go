@@ -3,41 +3,21 @@ package routines
 import (
 	"harmony/backend/model"
 	"testing"
-	"time"
 )
 
-// returns a channel that will send a message after 10ms.
-// can use this in a select statement to check for timeouts.
-func shortTimePassed() <-chan time.Time {
-	return time.After(10 * time.Millisecond)
+// stores all messages passed to it
+type LoggerRoutine struct {
+	msgs []string
 }
 
-// fake `Routines` implementation that tracks the tracks the names of the subroutine methods that were called
-type FakeRoutinesCallTracker struct {
-	calls []string
-}
-
-func (r *FakeRoutinesCallTracker) ComeOnline(client *model.Client, fromCl chan string, toCl chan string, errCl chan string) {
-	r.calls = append(r.calls, "ComeOnline")
-}
-func (r *FakeRoutinesCallTracker) EstablishConnectionToPeer() {
-	r.calls = append(r.calls, "EstablishConnectionToPeer")
-}
-
-// count number of occurrences of an element in a slice
-func countOccurrences[K comparable](slice []K, el K) int {
-	count := 0
-	for _, item := range slice {
-		if item == el {
-			count++
-		}
-	}
-	return count
+func (r *LoggerRoutine) Next(args model.RoutineInput) []model.RoutineOutput {
+	r.msgs = append(r.msgs, args.Msg)
+	return []model.RoutineOutput{model.MakeRoutineOutput(false)}
 }
 
 func TestMasterRoutine(t *testing.T) {
 
-	t.Run("Master routine calls no routines when schema does not match", func(t *testing.T) {
+	t.Run("Master routine calls no routines and returns error when schema does not match", func(t *testing.T) {
 
 		invalidMessages := []string{
 			`{"initiate": "thisIsARoutineThatDoesNotExist"}`,
@@ -45,24 +25,50 @@ func TestMasterRoutine(t *testing.T) {
 			`this is not valid json`,
 		}
 
-		mockClient := &model.Client{}
-
 		for _, tt := range invalidMessages {
 			t.Run(tt, func(t *testing.T) {
-				mockTransaction := model.MakeTransaction()
-				fakeRoutines := FakeRoutinesCallTracker{}
 
-				// send non-matching json
-				mockTransaction.FromCl <- tt
+				callCount := 0
 
-				// run function
-				masterRoutine(&fakeRoutines, mockClient, mockTransaction.FromCl, mockTransaction.ToCl)
-
-				totalCount := len(fakeRoutines.calls)
-
-				if totalCount != 0 {
-					t.Errorf("Total routine call count: expected %v got %v", 0, totalCount)
+				incrementCallCount := func(c *model.Client, h *model.Hub) model.Routine {
+					callCount += 1
+					return &EmptyRoutine{}
 				}
+
+				// mock the routine constructors
+				routineImpls := RoutineConstructors{
+					NewComeOnline:                incrementCallCount,
+					NewEstablishConnectionToPeer: incrementCallCount,
+					NewFriendRequest:             incrementCallCount,
+					NewFriendRejection:           incrementCallCount,
+				}
+
+				mockClient := &model.Client{}
+				mockHub := model.NewHub()
+
+				master := newMasterRoutineDependencyInj(routineImpls, mockClient, mockHub)
+
+				testRunner(t, master, []Step{
+					{
+						input: model.RoutineInput{
+							MsgType: model.RoutineMsgType_UsrMsg,
+							Msg:     tt,
+						},
+						outputs: []ExpectedOutput{
+							{
+								ro: model.RoutineOutput{
+									Msgs: []string{errorSchemaString()},
+									Done: true,
+								},
+							},
+						},
+					},
+				})
+
+				if callCount != 0 {
+					t.Errorf("Total routine call count: expected %v got %v", 0, callCount)
+				}
+
 			})
 		}
 
@@ -71,29 +77,55 @@ func TestMasterRoutine(t *testing.T) {
 	t.Run("Master routine calls correct routine", func(t *testing.T) {
 
 		tests := []struct {
-			initiateKeyword     string
-			routineFunctionName string
+			initiateKeyword        string
+			routineConstructorName string
 		}{
-			{"comeOnline", "ComeOnline"},
-			{"establishConnectionToPeer", "EstablishConnectionToPeer"},
+			{"comeOnline", "NewComeOnline"},
+			{"sendConnectionRequest", "NewEstablishConnectionToPeer"},
+			{"sendFriendRequest", "NewFriendRequest"},
+			{"sendFriendRejection", "NewFriendRejection"},
 		}
 
 		for _, tt := range tests {
 			t.Run(tt.initiateKeyword, func(t *testing.T) {
-				mockClient := &model.Client{}
-				mockTransaction := model.MakeTransaction()
-				fakeRoutines := &FakeRoutinesCallTracker{}
 
-				// send matching schema
-				mockTransaction.FromCl <- `{
-					"initiate": "` + tt.initiateKeyword + `"
-				}`
-				// run function
-				masterRoutine(fakeRoutines, mockClient, mockTransaction.FromCl, mockTransaction.ToCl)
+				calls := make([]string, 0)
+
+				// mock the routine constructors to track new routines being created
+				routineImpls := RoutineConstructors{
+					NewComeOnline: func(c *model.Client, h *model.Hub) model.Routine {
+						calls = append(calls, "NewComeOnline")
+						return &EmptyRoutine{}
+					},
+					NewEstablishConnectionToPeer: func(c *model.Client, h *model.Hub) model.Routine {
+						calls = append(calls, "NewEstablishConnectionToPeer")
+						return &EmptyRoutine{}
+					},
+					NewFriendRequest: func(c *model.Client, h *model.Hub) model.Routine {
+						calls = append(calls, "NewFriendRequest")
+						return &EmptyRoutine{}
+					},
+					NewFriendRejection: func(c *model.Client, h *model.Hub) model.Routine {
+						calls = append(calls, "NewFriendRejection")
+						return &EmptyRoutine{}
+					},
+				}
+
+				mockClient := &model.Client{}
+				mockHub := model.NewHub()
+
+				master := newMasterRoutineDependencyInj(routineImpls, mockClient, mockHub)
+				master.Next(model.RoutineInput{
+					MsgType: model.RoutineMsgType_UsrMsg,
+					Pk:      nil,
+					Msg: `{
+						"initiate": "` + tt.initiateKeyword + `"
+					}`,
+				})
 
 				// check only the correct routines was called
-				thisRoutineCount := countOccurrences(fakeRoutines.calls, tt.routineFunctionName)
-				totalCount := len(fakeRoutines.calls)
+				thisRoutineCount := countOccurrences(calls, tt.routineConstructorName)
+				totalCount := len(calls)
 
 				if thisRoutineCount != 1 {
 					t.Errorf("Call count: expected %v got %v", 1, thisRoutineCount)
@@ -106,12 +138,43 @@ func TestMasterRoutine(t *testing.T) {
 
 	})
 
-	// t.Run("Master routine kills routines if they hang for too long", func(t *testing.T) {
-	// 	// TODO
-	// })
+	t.Run("Master routine passes all user messages to handlers", func(t *testing.T) {
 
-	// t.Run("Master routine kills routines if user sends terminate:cancel property", func(t *testing.T) {
-	// 	// TODO
-	// })
+		test := []string{
+			`{"initiate":"comeOnline"}`,
+			"message 2",
+			"message 3",
+		}
+
+		// mock comeOnline with a function that just logs all the msgs passed to it
+		mockConstructorImpls := routineContructorImplementations
+		loggerRoutine := &LoggerRoutine{}
+		mockConstructorImpls.NewComeOnline = func(c *model.Client, h *model.Hub) model.Routine {
+			return loggerRoutine
+		}
+
+		mockClient := &model.Client{}
+		mockHub := model.NewHub()
+
+		master := newMasterRoutineDependencyInj(mockConstructorImpls, mockClient, mockHub)
+
+		for i, input := range test {
+			master.Next(model.RoutineInput{
+				MsgType: model.RoutineMsgType_UsrMsg,
+				Pk:      nil,
+				Msg:     input,
+			})
+			if len(loggerRoutine.msgs) != i+1 {
+				t.Errorf("Input %s was not passed to routine", input)
+				break
+			}
+			got := loggerRoutine.msgs[i]
+			expected := input
+			if got != expected {
+				t.Errorf("Incorrect msg passed to function. Expected %s got %s", expected, got)
+			}
+		}
+
+	})
 
 }

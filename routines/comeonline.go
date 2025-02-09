@@ -1,41 +1,92 @@
 package routines
 
+// todo AT MOST ONE instance of this routine for each user should be running at any time.
+
 import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"harmony/backend/model"
 	"strconv"
+	"time"
 
 	"github.com/xeipuuv/gojsonschema"
 )
 
-func (r *RoutinesDefn) ComeOnline(client *model.Client, fromCl chan string, toCl chan string, errCl chan string) {
+const timeout = 30 * time.Second
 
-	if client.GetPublicKey() != nil {
-		errCl <- "public key already set"
-		return
+type ComeOnline struct {
+	client *model.Client
+	hub    *model.Hub
+	step   comeOnlineStep
+}
+
+type comeOnlineStep int
+
+const ( // enum
+	comeOnlineStep_hello comeOnlineStep = iota
+	comeOnlineStep_recvPublicKey
+)
+
+// constructor
+func newComeOnline(client *model.Client, hub *model.Hub) model.Routine {
+	return &ComeOnline{
+		client: client,
+		hub:    hub,
+		step:   comeOnlineStep_hello,
 	}
-	// initial message. Don't care about anything in here.
-	<-fromCl
+}
 
-	toCl <- `{
-		"version": "` + VERSION + `"
-	}`
+func (c *ComeOnline) Next(args model.RoutineInput) []model.RoutineOutput {
 
-	// get user key
-	keyMessageString := <-fromCl
-	publicKey, err := parseUserKeyMessage(keyMessageString)
+	switch args.MsgType {
+	case model.RoutineMsgType_ClientClose:
+		return []model.RoutineOutput{}
+	case model.RoutineMsgType_Timeout:
+		return makeCOOutput(true, MakeJSONError("timeout"))
+	case model.RoutineMsgType_UsrMsg:
+		if isClientCancelMsg(args.Msg) {
+			return makeCOOutput(true)
+		}
+		switch c.step {
+		case comeOnlineStep_hello:
+			return c.hello()
+		case comeOnlineStep_recvPublicKey:
+			return c.recvPublicKey(args.Msg)
+		}
+		panic("unrecognized step")
+	}
+	panic("unrecognized message type")
+
+}
+
+// send version number
+func (c *ComeOnline) hello() []model.RoutineOutput {
+
+	if c.client.GetPublicKey() != nil {
+		return makeCOOutput(true, MakeJSONError("Public key already set"))
+	}
+	// set next step
+	c.step = comeOnlineStep_recvPublicKey
+	// msgs to return to user
+	return makeCOOutput(false, `{"version":"`+VERSION+`"}`)
+}
+
+func (c *ComeOnline) recvPublicKey(msg string) []model.RoutineOutput {
+	key, err := parseUserKeyMessage(msg)
 	if err != nil {
-		errCl <- err.Error()
-		return
+		return makeCOOutput(true, MakeJSONError(err.Error()))
 	}
-	client.SetPublicKey(publicKey)
-
-	toCl <- `{
-		"welcome": "welcome",
-		"terminate": "done"
-	}`
+	_, clientWithKeyAlreadyExists := c.hub.GetClient(*key)
+	if clientWithKeyAlreadyExists {
+		return makeCOOutput(true, MakeJSONError("Another client already signed in with this public key"))
+	}
+	err = c.hub.AddClient(*key, c.client)
+	if err != nil {
+		return makeCOOutput(true, MakeJSONError(err.Error()))
+	}
+	c.client.SetPublicKey(key)
+	return makeCOOutput(true, `{"welcome":"welcome","terminate":"done"}`)
 }
 
 var userKeyMessageSchema = func() *gojsonschema.Schema {
@@ -67,7 +118,7 @@ func parseUserKeyMessage(keyMessageString string) (*model.PublicKey, error) {
 	result, err := userKeyMessageSchema.Validate(messageLoader)
 
 	if err != nil {
-		return nil, errors.New("unable to parse client message")
+		return nil, err
 	}
 	if !result.Valid() {
 		return nil, errors.New(formatJSONError(result))
@@ -75,7 +126,7 @@ func parseUserKeyMessage(keyMessageString string) (*model.PublicKey, error) {
 
 	err = json.Unmarshal([]byte(keyMessageString), &keyMessage)
 	if err != nil {
-		return nil, errors.New("unable to parse client message")
+		return nil, err
 	}
 	keyString := keyMessage.PublicKey
 	key, err := hex.DecodeString(keyString)
@@ -84,4 +135,12 @@ func parseUserKeyMessage(keyMessageString string) (*model.PublicKey, error) {
 	}
 
 	return (*model.PublicKey)(key), nil
+}
+
+// make ComeOnline output
+func makeCOOutput(done bool, msgs ...string) []model.RoutineOutput {
+	ro := model.MakeRoutineOutput(done, msgs...)
+	ro.TimeoutEnabled = true
+	ro.TimeoutDuration = timeout
+	return []model.RoutineOutput{ro}
 }

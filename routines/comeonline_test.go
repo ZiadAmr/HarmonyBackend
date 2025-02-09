@@ -5,8 +5,6 @@ import (
 	"harmony/backend/model"
 	"strconv"
 	"testing"
-
-	"github.com/xeipuuv/gojsonschema"
 )
 
 const comeOnlineVersionResponseSchema = `{
@@ -30,79 +28,6 @@ const comeOnlineWelcomeResponseSchema = `{
   "additionalProperties": false
 }`
 
-type Step struct {
-	kind    string
-	content string
-}
-
-// feed inputs and validate output over the two channels.
-// stops when a message is sent to `done`. Requires a `done` message following the last step
-func runSteps(steps []Step, fromCl chan string, toCl chan string, done chan struct{}, t *testing.T) {
-	for _, step := range steps {
-		switch step.kind {
-		case "input":
-			select {
-			case <-shortTimePassed():
-				t.Errorf("Timeout on input:\n%s", step.content)
-				return
-			case fromCl <- step.content:
-			case <-done:
-				return
-			}
-		case "outputSchema":
-			var output string
-			select {
-			case <-shortTimePassed():
-				t.Errorf("Timeout waiting for output:\n%s", step.content)
-				return
-			case output = <-toCl:
-			case <-done:
-				return
-			}
-
-			// verify output against schema
-			schemaLoader := gojsonschema.NewStringLoader(step.content)
-			outputLoader := gojsonschema.NewStringLoader(output)
-
-			result, err := gojsonschema.Validate(schemaLoader, outputLoader)
-
-			if err != nil {
-				t.Errorf(err.Error())
-				return
-			}
-
-			if !result.Valid() {
-				t.Errorf("%s. Got:\n%s", formatJSONError(result), output)
-			}
-		}
-	}
-	select {
-	case <-shortTimePassed():
-		t.Errorf("Timeout waiting for routine to end")
-		return
-	case <-done:
-	}
-}
-
-// make channels, then run steps on ComeOnline function
-func comeOnlineTestWrapper(t *testing.T, client *model.Client, steps []Step) chan string {
-	r := RoutinesDefn{}
-	FromCl := make(chan string)
-	ToCl := make(chan string)
-	ErrCl := make(chan string, 1)
-	done := make(chan struct{})
-	defer close(done)
-	go func() {
-		defer close(FromCl)
-		defer close(ToCl)
-		r.ComeOnline(client, FromCl, ToCl, ErrCl)
-		done <- struct{}{}
-	}()
-	// pass test inputs in and validate outputs
-	runSteps(steps, FromCl, ToCl, done, t)
-	return ErrCl
-}
-
 func TestComeOnline(t *testing.T) {
 
 	t.Run("runs correctly on valid inputs", func(t *testing.T) {
@@ -119,22 +44,33 @@ func TestComeOnline(t *testing.T) {
 				}(),
 				steps: []Step{
 					{
-						"input",
-						`{"initiate": "comeOnline"}`,
+						input: model.RoutineInput{
+							MsgType: model.RoutineMsgType_UsrMsg,
+							Msg:     `{"initiate": "comeOnline"}`,
+						},
+						outputs: []ExpectedOutput{
+							{
+								ro: model.RoutineOutput{
+									Msgs: []string{comeOnlineVersionResponseSchema},
+								},
+							},
+						},
 					},
 					{
-						"outputSchema",
-						comeOnlineVersionResponseSchema,
-					},
-					{
-						"input",
-						`{
-							"publicKey": "cffd10babed1182e7d8e6cff845767eeae4508aa13cd00379233f57f799dc18c1eefd35b51db36e3da4770737a3f8fe75eda0cd3c48f23ea705f3234b0929f9e"
-						}`,
-					},
-					{
-						"outputSchema",
-						comeOnlineWelcomeResponseSchema,
+						input: model.RoutineInput{
+							MsgType: model.RoutineMsgType_UsrMsg,
+							Msg: `{
+								"publicKey": "cffd10babed1182e7d8e6cff845767eeae4508aa13cd00379233f57f799dc18c1eefd35b51db36e3da4770737a3f8fe75eda0cd3c48f23ea705f3234b0929f9e"
+							}`,
+						},
+						outputs: []ExpectedOutput{
+							{
+								ro: model.RoutineOutput{
+									Msgs: []string{comeOnlineWelcomeResponseSchema},
+									Done: true,
+								},
+							},
+						},
 					},
 				},
 			},
@@ -146,28 +82,26 @@ func TestComeOnline(t *testing.T) {
 
 				// mocks
 				mockClient := &model.Client{}
+				mockHub := model.NewHub()
 
-				errCl := comeOnlineTestWrapper(t, mockClient, tt.steps)
-				defer close(errCl)
+				co := newComeOnline(mockClient, mockHub)
 
-				// expect no errors
-				select {
-				case err := <-errCl:
-					t.Errorf(err)
-					return
-				default:
-				}
+				testRunner(t, co, tt.steps)
 
 				// check that the key has been updated as expected
-				if *mockClient.GetPublicKey() != tt.key {
+				if mockClient.GetPublicKey() == nil {
+					t.Errorf("Expected public key of client not to be nil")
+				} else if *mockClient.GetPublicKey() != tt.key {
 					t.Errorf("public key not correct: expected %s got %s", tt.key, *mockClient.GetPublicKey())
 				}
 
-				// TODO================================
-				//
-				// Also test that the hub has been updated.
-				//
-				// ====================================
+				// check that the client has been added to the hub
+				hubClient, exists := mockHub.GetClient(tt.key)
+				if !exists {
+					t.Errorf("Expected client to be added to the hub")
+				} else if hubClient != mockClient {
+					t.Errorf("Expected client pointer to be added to the hub. Expected %v got %v", mockClient, hubClient)
+				}
 			})
 		}
 	})
@@ -180,20 +114,31 @@ func TestComeOnline(t *testing.T) {
 			{
 				steps: []Step{
 					{
-						"input",
-						`{"initiate": "comeOnline"}`,
+						input: model.RoutineInput{
+							MsgType: model.RoutineMsgType_UsrMsg,
+							Msg:     `{"initiate": "comeOnline"}`,
+						},
+						outputs: []ExpectedOutput{
+							{
+								ro: model.RoutineOutput{
+									Msgs: []string{comeOnlineVersionResponseSchema},
+								},
+							},
+						},
 					},
 					{
-						"outputSchema",
-						comeOnlineVersionResponseSchema,
-					},
-					{
-						"input",
-						`bad input!!!!!`,
-					},
-					{
-						"outputSchema",
-						comeOnlineWelcomeResponseSchema,
+						input: model.RoutineInput{
+							MsgType: model.RoutineMsgType_UsrMsg,
+							Msg:     `bad input!!!!!`,
+						},
+						outputs: []ExpectedOutput{
+							{
+								ro: model.RoutineOutput{
+									Msgs: []string{errorSchemaString()},
+									Done: true,
+								},
+							},
+						},
 					},
 				},
 			},
@@ -204,63 +149,239 @@ func TestComeOnline(t *testing.T) {
 
 				// mocks
 				mockClient := &model.Client{}
+				mockHub := model.NewHub()
 
-				errCl := comeOnlineTestWrapper(t, mockClient, tt.steps)
-				defer close(errCl)
+				co := newComeOnline(mockClient, mockHub)
 
-				// check to see if there was an error
-				select {
-				case <-errCl:
-				default:
-					t.Errorf("Expected an error.")
-				}
+				testRunner(t, co, tt.steps)
 			})
 		}
 	})
 
-	// t.Run("cancels transaction if public key is already signed in", func(t *testing.T) {
+	t.Run("cancels transaction if public key is already signed in", func(t *testing.T) {
 
-	// 	steps := []Step{
-	// 		{
-	// 			"input",
-	// 			`{"initiate": "comeOnline"}`,
-	// 		},
-	// 		{
-	// 			"outputSchema",
-	// 			comeOnlineVersionResponseSchema,
-	// 		},
-	// 		{
-	// 			"input",
-	// 			`{
-	// 				"publicKey": "cffd10babed1182e7d8e6cff845767eeae4508aa13cd00379233f57f799dc18c1eefd35b51db36e3da4770737a3f8fe75eda0cd3c48f23ea705f3234b0929f9e"
-	// 			}`,
-	// 		},
-	// 		// no final step because it should fail
-	// 	}
+		steps := []Step{
+			{
+				input: model.RoutineInput{
+					MsgType: model.RoutineMsgType_UsrMsg,
+					Msg:     `{"initiate": "comeOnline"}`,
+				},
+				outputs: []ExpectedOutput{
+					{
+						ro: model.RoutineOutput{
+							Msgs: []string{comeOnlineVersionResponseSchema},
+						},
+					},
+				},
+			},
+			{
+				input: model.RoutineInput{
+					MsgType: model.RoutineMsgType_UsrMsg,
+					Msg: `{
+						"publicKey": "cffd10babed1182e7d8e6cff845767eeae4508aa13cd00379233f57f799dc18c1eefd35b51db36e3da4770737a3f8fe75eda0cd3c48f23ea705f3234b0929f9e"
+					}`,
+				},
+				outputs: []ExpectedOutput{
+					{
+						ro: model.RoutineOutput{
+							Msgs: []string{errorSchemaString()},
+							Done: true,
+						},
+					},
+				},
+			},
+		}
 
-	// 	// mock hub with the client already signed in
+		// mock hub with the client already signed in
 
-	// 	// model.NewGenericHub[Model]()
+		hub := model.NewHub()
 
-	// })
+		client0 := &model.Client{}
+		key := (model.PublicKey)([]byte("\xcf\xfd\x10\xba\xbe\xd1\x18\x2e\x7d\x8e\x6c\xff\x84\x57\x67\xee\xae\x45\x08\xaa\x13\xcd\x00\x37\x92\x33\xf5\x7f\x79\x9d\xc1\x8c\x1e\xef\xd3\x5b\x51\xdb\x36\xe3\xda\x47\x70\x73\x7a\x3f\x8f\xe7\x5e\xda\x0c\xd3\xc4\x8f\x23\xea\x70\x5f\x32\x34\xb0\x92\x9f\x9e"))
+		client0.SetPublicKey(&key)
+		hub.AddClient(key, client0)
+
+		// client that tries to use a public key that is already signed in
+		client1 := &model.Client{}
+
+		co := newComeOnline(client1, hub)
+
+		testRunner(t, co, steps)
+
+		// client id was not updated
+		if client1.GetPublicKey() != nil {
+			t.Errorf("Public key expected nil got %v", client1.GetPublicKey())
+		}
+
+		// hub still returns original client
+		expected := client0
+		got, _ := hub.GetClient(key)
+		if expected != got {
+			t.Errorf("Expected client not to be updated. Expected %v got %v", expected, got)
+		}
+
+	})
 
 	t.Run("Rejects immediately if public key is already set", func(t *testing.T) {
 
-		pk := (*model.PublicKey)([]byte("\xcf\xfd\x10\xba\xbe\xd1\x18\x2e\x7d\x8e\x6c\xff\x84\x57\x67\xee\xae\x45\x08\xaa\x13\xcd\x00\x37\x92\x33\xf5\x7f\x79\x9d\xc1\x8c\x1e\xef\xd3\x5b\x51\xdb\x36\xe3\xda\x47\x70\x73\x7a\x3f\x8f\xe7\x5e\xda\x0c\xd3\xc4\x8f\x23\xea\x70\x5f\x32\x34\xb0\x92\x9f\x9e"))
+		pk := (model.PublicKey)([]byte("\xcf\xfd\x10\xba\xbe\xd1\x18\x2e\x7d\x8e\x6c\xff\x84\x57\x67\xee\xae\x45\x08\xaa\x13\xcd\x00\x37\x92\x33\xf5\x7f\x79\x9d\xc1\x8c\x1e\xef\xd3\x5b\x51\xdb\x36\xe3\xda\x47\x70\x73\x7a\x3f\x8f\xe7\x5e\xda\x0c\xd3\xc4\x8f\x23\xea\x70\x5f\x32\x34\xb0\x92\x9f\x9e"))
 
-		steps := []Step{}
+		steps := []Step{
+			{
+				input: model.RoutineInput{
+					MsgType: model.RoutineMsgType_UsrMsg,
+					Msg:     `{"initiate": "comeOnline"}`,
+				},
+				outputs: []ExpectedOutput{
+					{
+						ro: model.RoutineOutput{
+							Msgs: []string{errorSchemaString()},
+							Done: true,
+						},
+					},
+				},
+			},
+		}
 
 		mockClient := &model.Client{}
-		mockClient.SetPublicKey(pk)
+		mockClient.SetPublicKey(&pk)
 
-		errCl := comeOnlineTestWrapper(t, mockClient, steps)
-		defer close(errCl)
+		mockHub := model.NewHub()
 
-		select {
-		case <-errCl:
-		default:
-			t.Errorf("Expected an error")
+		co := newComeOnline(mockClient, mockHub)
+
+		testRunner(t, co, steps)
+
+	})
+
+	t.Run(`Return immediately if receiving {"terminate","cancel"} from client`, func(t *testing.T) {
+
+		tests := [][]Step{
+			{
+				{
+					input: model.RoutineInput{
+						MsgType: model.RoutineMsgType_UsrMsg,
+						Msg:     `{"initiate": "comeOnline", "terminate":"cancel"}`,
+					},
+					outputs: []ExpectedOutput{
+						{
+							ro: model.RoutineOutput{
+								Done: true,
+							},
+						},
+					},
+				},
+			},
+			{
+				{
+					input: model.RoutineInput{
+						MsgType: model.RoutineMsgType_UsrMsg,
+						Msg:     `{"initiate": "comeOnline"}`,
+					},
+					outputs: []ExpectedOutput{
+						{
+							ro: model.RoutineOutput{
+								Msgs: []string{comeOnlineVersionResponseSchema},
+							},
+						},
+					},
+				},
+				{
+					input: model.RoutineInput{
+						MsgType: model.RoutineMsgType_UsrMsg,
+						Msg:     `{"terminate": "cancel"}`,
+					},
+					outputs: []ExpectedOutput{
+						{
+							ro: model.RoutineOutput{
+								Done: true,
+							},
+						},
+					},
+				},
+			},
 		}
+
+		for i, tt := range tests {
+			t.Run(strconv.Itoa(i), func(t *testing.T) {
+				mockClient := &model.Client{}
+				mockHub := model.NewHub()
+				co := newComeOnline(mockClient, mockHub)
+				testRunner(t, co, tt)
+			})
+		}
+	})
+
+	t.Run("does not send any more messages after a client close", func(t *testing.T) {
+		tests := [][]Step{
+			{
+				{
+					input: model.RoutineInput{
+						MsgType: model.RoutineMsgType_UsrMsg,
+						Msg:     `{"initiate": "comeOnline"}`,
+					},
+					outputs: []ExpectedOutput{
+						{
+							ro: model.RoutineOutput{
+								Msgs: []string{comeOnlineVersionResponseSchema},
+							},
+						},
+					},
+				},
+				{
+					input: model.RoutineInput{
+						MsgType: model.RoutineMsgType_ClientClose,
+					},
+					// expect no output
+				},
+			},
+		}
+
+		for i, tt := range tests {
+			t.Run(strconv.Itoa(i), func(t *testing.T) {
+				mockClient := &model.Client{}
+				mockHub := model.NewHub()
+				co := newComeOnline(mockClient, mockHub)
+				testRunner(t, co, tt)
+			})
+		}
+	})
+
+	t.Run("Closes after a timeout", func(t *testing.T) {
+		test := []Step{
+			{
+				input: model.RoutineInput{
+					MsgType: model.RoutineMsgType_UsrMsg,
+					Msg:     `{"initiate": "comeOnline"}`,
+				},
+				outputs: []ExpectedOutput{
+					{
+						ro: model.RoutineOutput{
+							Msgs: []string{comeOnlineVersionResponseSchema},
+						},
+					},
+				},
+			},
+			{
+				input: model.RoutineInput{
+					MsgType: model.RoutineMsgType_Timeout,
+				},
+				outputs: []ExpectedOutput{
+					{
+						ro: model.RoutineOutput{
+							Done: true,
+							Msgs: []string{errorSchemaString("timeout")},
+						},
+					},
+				},
+			},
+		}
+
+		mockClient := &model.Client{}
+		mockHub := model.NewHub()
+		co := newComeOnline(mockClient, mockHub)
+		testRunner(t, co, test)
+
 	})
 
 }

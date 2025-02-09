@@ -2,6 +2,7 @@ package routines
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"harmony/backend/model"
 	"strings"
@@ -9,19 +10,43 @@ import (
 	"github.com/xeipuuv/gojsonschema"
 )
 
-// helper function to convert json schema parse error to string
-func formatJSONError(result *gojsonschema.Result) string {
-	var errorStrings []string
-	for _, error := range result.Errors() {
-		errorStrings = append(errorStrings, error.Description())
-	}
-	return strings.Join(errorStrings, ", ")
-}
-
 const VERSION = "0.0"
 
+type MasterRoutine struct {
+	isSubRoutineSet bool
+	subRoutine      model.Routine
+	rc              RoutineConstructors
+	client          *model.Client
+	hub             *model.Hub
+}
+
+func NewMasterRoutine(client *model.Client, hub *model.Hub) model.Routine {
+	return newMasterRoutineDependencyInj(routineContructorImplementations, client, hub)
+}
+
+func newMasterRoutineDependencyInj(rc RoutineConstructors, client *model.Client, hub *model.Hub) model.Routine {
+	return &MasterRoutine{
+		rc:     rc,
+		client: client,
+		hub:    hub,
+	}
+}
+
+func (r *MasterRoutine) Next(args model.RoutineInput) []model.RoutineOutput {
+
+	if !r.isSubRoutineSet {
+		err := r.setSubRoutineFromInitialMsg(args.Msg)
+		if err != nil {
+			return []model.RoutineOutput{model.MakeRoutineOutput(true, MakeJSONError(err.Error()))}
+		}
+		r.isSubRoutineSet = true
+	}
+
+	return r.subRoutine.Next(args)
+}
+
 // list of acceptable values of the `"initiate":` property
-var routineNames = []string{"comeOnline", "establishConnectionToPeer"}
+var routineNames = []string{"comeOnline", "sendConnectionRequest", "sendFriendRequest", "sendFriendRejection"}
 
 // schema to look for and validate the "initiate:" property
 var initiateSchema = func() *gojsonschema.Schema {
@@ -37,7 +62,7 @@ var initiateSchema = func() *gojsonschema.Schema {
 		"$schema": "https://json-schema.org/draft/2020-12/schema",
 		"type": "object",
 		"properties": {
-			"initiate": {"enum": [%s]} 
+			"initiate": {"enum": [%s]}
 		},
 		"required": ["initiate"]
 	}`, joinedQuotedRoutineNames)
@@ -47,57 +72,40 @@ var initiateSchema = func() *gojsonschema.Schema {
 	return schema
 }()
 
-// type for parsed json
-type InitiateMessage struct {
-	Initiate string
-}
+func (r *MasterRoutine) setSubRoutineFromInitialMsg(msg string) error {
 
-// Main router when a new transaction is started.
-func MasterRoutine(client *model.Client, fromCl chan string, toCl chan string) {
-	r := &RoutinesDefn{}
-	masterRoutine(r, client, fromCl, toCl)
-}
-
-// abstracted routine functions for testing/dependency injection
-type Routines interface {
-	ComeOnline(client *model.Client, fromCl chan string, toCl chan string, errCl chan string)
-	EstablishConnectionToPeer()
-}
-
-// version with mocks for testing purposes.
-func masterRoutine(r Routines, client *model.Client, fromCl chan string, toCl chan string) {
-
-	firstMessage := <-fromCl
-	message := gojsonschema.NewStringLoader(firstMessage)
+	message := gojsonschema.NewStringLoader(msg)
 
 	// check that user message contains `"initiate":` property with a valid value
 	result, err := initiateSchema.Validate(message)
 
 	if err != nil {
-		// client send malformed json
-		return
+		return err
 	}
 	if !result.Valid() {
-		return
+		return errors.New(formatJSONError(result))
 	}
 
-	parsed := InitiateMessage{}
-	err = json.Unmarshal([]byte(firstMessage), &parsed)
+	parsed := struct {
+		Initiate string
+	}{}
+	err = json.Unmarshal([]byte(msg), &parsed)
 
 	if err != nil {
-		panic(err.Error())
+		return err
 	}
-
-	// do nothing with this currently
-	errCl := make(chan string, 1)
 
 	switch parsed.Initiate {
 	case "comeOnline":
-		r.ComeOnline(client, fromCl, toCl, errCl)
-	case "establishConnectionToPeer":
-		r.EstablishConnectionToPeer()
+		r.subRoutine = r.rc.NewComeOnline(r.client, r.hub)
+	case "sendConnectionRequest":
+		r.subRoutine = r.rc.NewEstablishConnectionToPeer(r.client, r.hub)
+	case "sendFriendRequest":
+		r.subRoutine = r.rc.NewFriendRequest(r.client, r.hub)
+	case "sendFriendRejection":
+		r.subRoutine = r.rc.NewFriendRejection(r.client, r.hub)
 	default:
-		panic("Unrecognized routine")
+		return errors.New("routine does not exist")
 	}
-
+	return nil
 }

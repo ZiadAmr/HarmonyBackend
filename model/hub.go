@@ -1,51 +1,52 @@
 package model
 
-import "errors"
+// threadsafe
 
-// use this interface in place of the Client struct
-// there may be other stuff in the Client struct that we don't care about here.
-// use interface cos it's easier to mock if needed
-type hasPublicKey interface {
-	GetPublicKey() *PublicKey
-}
+import (
+	"errors"
+	"sync"
+)
 
-type Hub[C hasPublicKey] struct {
+type Hub = genericHub[*Client]
+
+// make hub generic for testing purposes
+type genericHub[C interface{}] struct {
 	clients map[PublicKey]C
+	lock    sync.Mutex
 }
 
-func NewHub() *Hub[*Client] {
+func NewHub() *Hub {
 	return newGenericHub[*Client]()
 }
 
-func newGenericHub[C hasPublicKey]() *Hub[C] {
-	return &Hub[C]{
+func newGenericHub[C interface{}]() *genericHub[C] {
+	return &genericHub[C]{
 		clients: make(map[PublicKey]C),
 	}
 }
 
-func (h Hub[C]) AddClient(client C) error {
+func (h *genericHub[C]) AddClient(pk PublicKey, client C) error {
+	defer h.lock.Unlock()
+	h.lock.Lock()
 
-	publicKey := client.GetPublicKey()
-
-	if publicKey == nil {
-		return errors.New("client has nil public key")
-	}
-
-	_, alreadyExists := h.clients[*publicKey]
+	_, alreadyExists := h.clients[pk]
 	if alreadyExists {
 		return errors.New("client with public key already exists")
 	}
 
-	h.clients[*publicKey] = client
+	h.clients[pk] = client
 	return nil
 }
 
-func (h Hub[C]) GetClient(key PublicKey) (C, bool) {
+func (h *genericHub[C]) GetClient(key PublicKey) (C, bool) {
 	cl, exists := h.clients[key]
 	return cl, exists
 }
 
-func (h Hub[C]) DeleteClient(key PublicKey) error {
+func (h *genericHub[C]) DeleteClient(key PublicKey) error {
+	defer h.lock.Unlock()
+	h.lock.Lock()
+
 	_, exists := h.clients[key]
 	if !exists {
 		return errors.New("client with public key does not exist")

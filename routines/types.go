@@ -1,4 +1,12 @@
 package routines
 
-// concrete routine definitions
-type RoutinesDefn struct{}
+import "harmony/backend/model"
+
+type RoutineConstructor func(*model.Client, *model.Hub) model.Routine
+
+type RoutineConstructors struct {
+	NewComeOnline                RoutineConstructor
+	NewEstablishConnectionToPeer RoutineConstructor
+	NewFriendRequest             RoutineConstructor
+	NewFriendRejection           RoutineConstructor
+}
