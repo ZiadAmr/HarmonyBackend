@@ -2,12 +2,19 @@
 package routines
 
 import (
-	"encoding/hex"
 	"harmony/backend/model"
 	"testing"
 
 	"github.com/xeipuuv/gojsonschema"
 )
+
+var publicKey0 = (model.PublicKey)("MCowBQYDK2VwAyEAUFRxKDllkUY843/zVOPE67zGqkGoMZd7dGKl2+9+pYQ=")
+
+// var privateKey0 = "MC4CAQAwBQYDK2VwBCIEILLK2qyMQi162qzsJ2pV5bS5tX/6XEgWtw62eUKOKLAF"
+
+var publicKey1 = (model.PublicKey)("MCowBQYDK2VwAyEA1x5dCGTiFyoAGPP8XTzv58tZQHx5RB5E+5xFX5xwMFQ=")
+
+// var privateKey1 = "MC4CAQAwBQYDK2VwBCIEIP192NwPoJrEi4IxNZRpYd5E9yoDQypY+3VNSuxSvFtn"
 
 type ExpectedOutput struct {
 	// json schemas instead of actual messages in the ro.
@@ -25,7 +32,7 @@ func pkToStr(pk *model.PublicKey) string {
 	if pk == nil {
 		return "nil"
 	} else {
-		return hex.EncodeToString(pk[:model.KEYLEN/8]) + "[…]"
+		return (string)(*pk)
 	}
 }
 

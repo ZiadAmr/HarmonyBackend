@@ -1,7 +1,6 @@
 package routines
 
 import (
-	"encoding/hex"
 	"harmony/backend/model"
 	"strconv"
 	"testing"
@@ -20,7 +19,7 @@ func TestFriendRequest(t *testing.T) {
 			}
 
 			client := &model.Client{}
-			client.SetPublicKey(&pkA)
+			client.SetPublicKey(&publicKey0)
 			hub := model.NewHub()
 			hub.AddClient(*client.GetPublicKey(), client)
 			fr := newFriendRequest(client, hub)
@@ -42,9 +41,9 @@ func TestFriendRequest(t *testing.T) {
 					}
 
 					clientA := &model.Client{}
-					clientA.SetPublicKey(&pkA)
+					clientA.SetPublicKey(&publicKey0)
 					clientB := &model.Client{}
-					clientB.SetPublicKey(&pkB)
+					clientB.SetPublicKey(&publicKey1)
 					hub := model.NewHub()
 					hub.AddClient(*clientA.GetPublicKey(), clientA)
 					hub.AddClient(*clientB.GetPublicKey(), clientB)
@@ -94,16 +93,16 @@ func TestFriendRequest(t *testing.T) {
 					description: "User sends a friend request to themself",
 					input: model.RoutineInput{
 						MsgType: model.RoutineMsgType_UsrMsg,
-						Pk:      &pkA,
+						Pk:      &publicKey0,
 						Msg: `{
 							"initiate": "sendFriendRequest",
-							"key": "` + hex.EncodeToString(pkA[:]) + `"
+							"key": "` + (string)(publicKey0) + `"
 						}`,
 					},
 					outputs: []ExpectedOutput{
 						{
 							ro: model.RoutineOutput{
-								Pk:   &pkA,
+								Pk:   &publicKey0,
 								Msgs: []string{errorSchemaString("Sending a friend request to yourself is not allowed")},
 								Done: true,
 							},
@@ -112,7 +111,7 @@ func TestFriendRequest(t *testing.T) {
 				},
 			}
 			client := &model.Client{}
-			client.SetPublicKey(&pkA)
+			client.SetPublicKey(&publicKey0)
 			hub := model.NewHub()
 			hub.AddClient(*client.GetPublicKey(), client)
 			fr := newFriendRequest(client, hub)
@@ -134,7 +133,7 @@ func TestFriendRequest(t *testing.T) {
 						description: "No key",
 						input: model.RoutineInput{
 							MsgType: model.RoutineMsgType_UsrMsg,
-							Pk:      &pkA,
+							Pk:      &publicKey0,
 							Msg:     `{"initiate": "sendFriendRequest"}`,
 						},
 						outputs: outputPkAError,
@@ -144,7 +143,7 @@ func TestFriendRequest(t *testing.T) {
 						description: "Key in wrong format",
 						input: model.RoutineInput{
 							MsgType: model.RoutineMsgType_UsrMsg,
-							Pk:      &pkA,
+							Pk:      &publicKey0,
 							Msg:     `{"initiate": "sendFriendRequest", "key":"4"}`,
 						},
 						outputs: outputPkAError,
@@ -154,7 +153,7 @@ func TestFriendRequest(t *testing.T) {
 						description: "Invalid JSON",
 						input: model.RoutineInput{
 							MsgType: model.RoutineMsgType_UsrMsg,
-							Pk:      &pkA,
+							Pk:      &publicKey0,
 							Msg:     `)`,
 						},
 						outputs: outputPkAError,
@@ -164,8 +163,8 @@ func TestFriendRequest(t *testing.T) {
 						description: "Extra properties",
 						input: model.RoutineInput{
 							MsgType: model.RoutineMsgType_UsrMsg,
-							Pk:      &pkA,
-							Msg:     `{"initiate": "sendFriendRequest", "key":"` + hex.EncodeToString(pkB[:]) + `", "extraProperty!":{}}`,
+							Pk:      &publicKey0,
+							Msg:     `{"initiate": "sendFriendRequest", "key":"` + (string)(publicKey1) + `", "extraProperty!":{}}`,
 						},
 						outputs: outputPkAError,
 					},
@@ -186,7 +185,7 @@ func TestFriendRequest(t *testing.T) {
 						description: "B sends no forward property",
 						input: model.RoutineInput{
 							MsgType: model.RoutineMsgType_UsrMsg,
-							Pk:      &pkB,
+							Pk:      &publicKey1,
 							Msg:     `{}`,
 						},
 						outputs: outputPkBErrorToBoth,
@@ -195,7 +194,7 @@ func TestFriendRequest(t *testing.T) {
 						description: "B sends additional properties",
 						input: model.RoutineInput{
 							MsgType: model.RoutineMsgType_UsrMsg,
-							Pk:      &pkB,
+							Pk:      &publicKey1,
 							Msg:     `"{forward":{"type":"reject"},"what": true}`,
 						},
 						outputs: outputPkBErrorToBoth,
@@ -204,7 +203,7 @@ func TestFriendRequest(t *testing.T) {
 						description: "B sends malformed JSON",
 						input: model.RoutineInput{
 							MsgType: model.RoutineMsgType_UsrMsg,
-							Pk:      &pkB,
+							Pk:      &publicKey1,
 							Msg:     `{`,
 						},
 						outputs: outputPkBErrorToBoth,
@@ -213,7 +212,7 @@ func TestFriendRequest(t *testing.T) {
 						description: "B sends invalid response (not reject, accept, or pending)",
 						input: model.RoutineInput{
 							MsgType: model.RoutineMsgType_UsrMsg,
-							Pk:      &pkB,
+							Pk:      &publicKey1,
 							Msg: `{
 								"forward": {
 									"type": "\""
@@ -226,7 +225,7 @@ func TestFriendRequest(t *testing.T) {
 						description: "A sends message out of order",
 						input: model.RoutineInput{
 							MsgType: model.RoutineMsgType_UsrMsg,
-							Pk:      &pkA,
+							Pk:      &publicKey0,
 							Msg:     "boo!",
 						},
 						outputs: outputPkAErrorToBoth,
@@ -242,12 +241,12 @@ func TestFriendRequest(t *testing.T) {
 				t.Run(test.description+"-"+strconv.Itoa(j), func(t *testing.T) {
 
 					clientA := &model.Client{}
-					clientA.SetPublicKey(&pkA)
+					clientA.SetPublicKey(&publicKey0)
 					clientB := &model.Client{}
-					clientB.SetPublicKey(&pkB)
+					clientB.SetPublicKey(&publicKey1)
 					hub := model.NewHub()
-					hub.AddClient(pkA, clientA)
-					hub.AddClient(pkB, clientB)
+					hub.AddClient(publicKey0, clientA)
+					hub.AddClient(publicKey1, clientB)
 					fr := newFriendRequest(clientA, hub)
 
 					testRunner(t, fr, append(test.prefaceSteps, testCase), testRunnerConfig{errorsOnLastStepOnly: true})
@@ -263,17 +262,17 @@ func TestFriendRequest(t *testing.T) {
 var frStepInitiateOffline = Step{
 	description: "A sends friend request",
 	input: model.RoutineInput{
-		Pk:      &pkA,
+		Pk:      &publicKey0,
 		MsgType: model.RoutineMsgType_UsrMsg,
 		Msg: `{
 			"initiate": "sendFriendRequest",
-			"key": "` + hex.EncodeToString(pkB[:]) + `"
+			"key": "` + (string)(publicKey1) + `"
 		}`,
 	},
 	outputs: []ExpectedOutput{
 		{
 			ro: model.RoutineOutput{
-				Pk: &pkA,
+				Pk: &publicKey0,
 				// reuse ectp cos it's the same
 				Msgs: []string{ectpSchemaOfflineToA},
 				Done: true,
@@ -286,18 +285,18 @@ var frStepInitiateOnline = Step{
 	description: "A sends a request and server sends a message to B",
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_UsrMsg,
-		Pk:      &pkA,
+		Pk:      &publicKey0,
 		Msg: `{
 			"initiate": "sendFriendRequest",
-			"key": "` + hex.EncodeToString(pkB[:]) + `"
+			"key": "` + (string)(publicKey1) + `"
 		}`,
 	},
 	outputs: []ExpectedOutput{
 		{
 			verifyTimeouts: true,
 			ro: model.RoutineOutput{
-				Pk:              &pkB,
-				Msgs:            []string{frSchemaInitiateToB(pkA)},
+				Pk:              &publicKey1,
+				Msgs:            []string{frSchemaInitiateToB((string)(publicKey0))},
 				TimeoutEnabled:  true,
 				TimeoutDuration: frExpectedTimeoutDuration,
 			},
@@ -310,7 +309,7 @@ func frResponseFromB(status string) Step {
 		description: "B responds with status " + status,
 		input: model.RoutineInput{
 			MsgType: model.RoutineMsgType_UsrMsg,
-			Pk:      &pkB,
+			Pk:      &publicKey1,
 			Msg: `{
 				"forward": {
 					"type": "` + status + `"
@@ -320,14 +319,14 @@ func frResponseFromB(status string) Step {
 		outputs: []ExpectedOutput{
 			{
 				ro: model.RoutineOutput{
-					Pk:   &pkB,
+					Pk:   &publicKey1,
 					Msgs: []string{schemaBareTerminate},
 					Done: true,
 				},
 			},
 			{
 				ro: model.RoutineOutput{
-					Pk:   &pkA,
+					Pk:   &publicKey0,
 					Msgs: []string{frForwardToA(status)},
 					Done: true,
 				},
@@ -336,7 +335,7 @@ func frResponseFromB(status string) Step {
 	}
 }
 
-func frSchemaInitiateToB(pk model.PublicKey) string {
+func frSchemaInitiateToB(pkb32 string) string {
 	return `{
 		"$schema": "https://json-schema.org/draft/2020-12/schema",
 		"type": "object",
@@ -345,7 +344,7 @@ func frSchemaInitiateToB(pk model.PublicKey) string {
 				"const":"receiveFriendRequest"
 			},
 			"key": {
-				"const": "` + hex.EncodeToString(pk[:]) + `"
+				"const": "` + pkb32 + `"
 			}
 		},
 		"required": ["initiate", "key"],

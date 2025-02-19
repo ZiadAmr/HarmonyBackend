@@ -3,11 +3,9 @@ package routines
 // todo AT MOST ONE instance of this routine for each user should be running at any time.
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"harmony/backend/model"
-	"strconv"
 	"time"
 
 	"github.com/xeipuuv/gojsonschema"
@@ -97,7 +95,7 @@ var userKeyMessageSchema = func() *gojsonschema.Schema {
 		"properties": {
 			"publicKey": {
 				"type":"string",
-				"pattern": "^[0123456789abcdef]{` + strconv.Itoa(model.KEYLEN*2) + `}$"
+				"pattern": "` + publicKeyPattern + `"
 			}
 		},
 		"required": ["publicKey"],
@@ -129,7 +127,7 @@ func parseUserKeyMessage(keyMessageString string) (*model.PublicKey, error) {
 		return nil, err
 	}
 	keyString := keyMessage.PublicKey
-	key, err := hex.DecodeString(keyString)
+	key, err := parsePublicKey(keyString)
 	if err != nil {
 		return nil, errors.New("unable to parse client key")
 	}

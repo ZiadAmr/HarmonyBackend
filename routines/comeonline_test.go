@@ -1,7 +1,6 @@
 package routines
 
 import (
-	"encoding/hex"
 	"harmony/backend/model"
 	"strconv"
 	"testing"
@@ -38,10 +37,7 @@ func TestComeOnline(t *testing.T) {
 			steps []Step
 		}{
 			{
-				key: func() model.PublicKey {
-					key, _ := hex.DecodeString("cffd10babed1182e7d8e6cff845767eeae4508aa13cd00379233f57f799dc18c1eefd35b51db36e3da4770737a3f8fe75eda0cd3c48f23ea705f3234b0929f9e")
-					return (model.PublicKey)(key)
-				}(),
+				key: publicKey0,
 				steps: []Step{
 					{
 						input: model.RoutineInput{
@@ -60,7 +56,7 @@ func TestComeOnline(t *testing.T) {
 						input: model.RoutineInput{
 							MsgType: model.RoutineMsgType_UsrMsg,
 							Msg: `{
-								"publicKey": "cffd10babed1182e7d8e6cff845767eeae4508aa13cd00379233f57f799dc18c1eefd35b51db36e3da4770737a3f8fe75eda0cd3c48f23ea705f3234b0929f9e"
+								"publicKey": "` + (string)(publicKey0) + `"
 							}`,
 						},
 						outputs: []ExpectedOutput{
@@ -178,7 +174,7 @@ func TestComeOnline(t *testing.T) {
 				input: model.RoutineInput{
 					MsgType: model.RoutineMsgType_UsrMsg,
 					Msg: `{
-						"publicKey": "cffd10babed1182e7d8e6cff845767eeae4508aa13cd00379233f57f799dc18c1eefd35b51db36e3da4770737a3f8fe75eda0cd3c48f23ea705f3234b0929f9e"
+						"publicKey": "` + (string)(publicKey0) + `"
 					}`,
 				},
 				outputs: []ExpectedOutput{
@@ -197,7 +193,7 @@ func TestComeOnline(t *testing.T) {
 		hub := model.NewHub()
 
 		client0 := &model.Client{}
-		key := (model.PublicKey)([]byte("\xcf\xfd\x10\xba\xbe\xd1\x18\x2e\x7d\x8e\x6c\xff\x84\x57\x67\xee\xae\x45\x08\xaa\x13\xcd\x00\x37\x92\x33\xf5\x7f\x79\x9d\xc1\x8c\x1e\xef\xd3\x5b\x51\xdb\x36\xe3\xda\x47\x70\x73\x7a\x3f\x8f\xe7\x5e\xda\x0c\xd3\xc4\x8f\x23\xea\x70\x5f\x32\x34\xb0\x92\x9f\x9e"))
+		key := publicKey0
 		client0.SetPublicKey(&key)
 		hub.AddClient(key, client0)
 
@@ -224,7 +220,7 @@ func TestComeOnline(t *testing.T) {
 
 	t.Run("Rejects immediately if public key is already set", func(t *testing.T) {
 
-		pk := (model.PublicKey)([]byte("\xcf\xfd\x10\xba\xbe\xd1\x18\x2e\x7d\x8e\x6c\xff\x84\x57\x67\xee\xae\x45\x08\xaa\x13\xcd\x00\x37\x92\x33\xf5\x7f\x79\x9d\xc1\x8c\x1e\xef\xd3\x5b\x51\xdb\x36\xe3\xda\x47\x70\x73\x7a\x3f\x8f\xe7\x5e\xda\x0c\xd3\xc4\x8f\x23\xea\x70\x5f\x32\x34\xb0\x92\x9f\x9e"))
+		pk := publicKey0
 
 		steps := []Step{
 			{
@@ -394,9 +390,9 @@ func TestParseUserKeyMessage(t *testing.T) {
 		}{
 			{
 				`{
-					"publicKey": "cffd10babed1182e7d8e6cff845767eeae4508aa13cd00379233f57f799dc18c1eefd35b51db36e3da4770737a3f8fe75eda0cd3c48f23ea705f3234b0929f9e"
+					"publicKey": "` + (string)(publicKey0) + `"
 				}`,
-				(model.PublicKey)([]byte("\xcf\xfd\x10\xba\xbe\xd1\x18\x2e\x7d\x8e\x6c\xff\x84\x57\x67\xee\xae\x45\x08\xaa\x13\xcd\x00\x37\x92\x33\xf5\x7f\x79\x9d\xc1\x8c\x1e\xef\xd3\x5b\x51\xdb\x36\xe3\xda\x47\x70\x73\x7a\x3f\x8f\xe7\x5e\xda\x0c\xd3\xc4\x8f\x23\xea\x70\x5f\x32\x34\xb0\x92\x9f\x9e")),
+				publicKey0,
 			},
 		}
 
@@ -425,23 +421,23 @@ func TestParseUserKeyMessage(t *testing.T) {
 			keyStr string
 		}{
 			{`{
-				"publicKey": "illegal_characters______________________________________________________________________________________________________________"
+				"publicKey": "illegal_characters______________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________"
 			}`},
 			{`{
-				"publicKey": "0123456789abcdef"
+				"publicKey": "0123456789ABCDEF="
 			}`},
 			{`{
-				"publicKey": "0123456789abcde"
+				"publicKey": "NBSWY3DPEE======"
 			}`},
 			{`{}`},
 			{`{
-				"publicKey": "cffd10babed1182e7d8e6cff845767eeae4508aa13cd00379233f57f799dc18c1eefd35b51db36e3da4770737a3f8fe75eda0cd3c48f23ea705f3234b0929f9e",
+				"publicKey": "` + (string)(publicKey0) + `",
 				"extraUnwantedProperty": "boo!"
 			}`},
 			{`{
 				"publicKey": false,
 			}`},
-			{"cffd10babed1182e7d8e6cff845767eeae4508aa13cd00379233f57f799dc18c1eefd35b51db36e3da4770737a3f8fe75eda0cd3c48f23ea705f3234b0929f9e"},
+			{(string)(publicKey0)},
 		}
 
 		for _, tt := range tests {

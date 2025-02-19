@@ -1,7 +1,6 @@
 package routines
 
 import (
-	"encoding/hex"
 	"harmony/backend/model"
 	"strconv"
 	"testing"
@@ -21,7 +20,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 			}
 
 			client := &model.Client{}
-			client.SetPublicKey(&pkA)
+			client.SetPublicKey(&publicKey0)
 			hub := model.NewHub()
 			ectp := newEstablishConnectionToPeer(client, hub)
 
@@ -35,12 +34,12 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 			}
 
 			clientA := &model.Client{}
-			clientA.SetPublicKey(&pkA)
+			clientA.SetPublicKey(&publicKey0)
 			clientB := &model.Client{}
-			clientB.SetPublicKey(&pkB)
+			clientB.SetPublicKey(&publicKey1)
 			hub := model.NewHub()
-			hub.AddClient(pkA, clientA)
-			hub.AddClient(pkB, clientB)
+			hub.AddClient(publicKey0, clientA)
+			hub.AddClient(publicKey1, clientB)
 			ectp := newEstablishConnectionToPeer(clientA, hub)
 
 			testRunner(t, ectp, test)
@@ -73,12 +72,12 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 			for i, test := range tests {
 				t.Run(strconv.Itoa(i), func(t *testing.T) {
 					clientA := &model.Client{}
-					clientA.SetPublicKey(&pkA)
+					clientA.SetPublicKey(&publicKey0)
 					clientB := &model.Client{}
-					clientB.SetPublicKey(&pkB)
+					clientB.SetPublicKey(&publicKey1)
 					hub := model.NewHub()
-					hub.AddClient(pkA, clientA)
-					hub.AddClient(pkB, clientB)
+					hub.AddClient(publicKey0, clientA)
+					hub.AddClient(publicKey1, clientB)
 					ectp := newEstablishConnectionToPeer(clientA, hub)
 
 					testRunner(t, ectp, test)
@@ -101,7 +100,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 						Pk:      nil,
 						Msg: `{
 							"initiate": "sendConnectionRequest",
-							"key": "` + hex.EncodeToString(pkB[:]) + `"
+							"key": "` + (string)(publicKey1) + `"
 						}`,
 					},
 					outputs: []ExpectedOutput{
@@ -129,16 +128,16 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 					description: "A sends a connection request to A",
 					input: model.RoutineInput{
 						MsgType: model.RoutineMsgType_UsrMsg,
-						Pk:      &pkA,
+						Pk:      &publicKey0,
 						Msg: `{
 							"initiate": "sendConnectionRequest",
-							"key": "` + hex.EncodeToString(pkA[:]) + `"
+							"key": "` + (string)(publicKey0) + `"
 						}`,
 					},
 					outputs: []ExpectedOutput{
 						{
 							ro: model.RoutineOutput{
-								Pk:   &pkA,
+								Pk:   &publicKey0,
 								Msgs: []string{errorSchemaString("Connecting to yourself is not allowed")},
 								Done: true,
 							},
@@ -148,9 +147,9 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 			}
 
 			client := &model.Client{}
-			client.SetPublicKey(&pkA)
+			client.SetPublicKey(&publicKey0)
 			hub := model.NewHub()
-			hub.AddClient(pkA, client)
+			hub.AddClient(publicKey0, client)
 			ectp := newEstablishConnectionToPeer(client, hub)
 
 			testRunner(t, ectp, test)
@@ -163,7 +162,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 						description: "No key",
 						input: model.RoutineInput{
 							MsgType: model.RoutineMsgType_UsrMsg,
-							Pk:      &pkA,
+							Pk:      &publicKey0,
 							Msg:     `{"initiate": "sendConnectionRequest"}`,
 						},
 						outputs: outputPkAError,
@@ -174,7 +173,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 						description: "Key in wrong format",
 						input: model.RoutineInput{
 							MsgType: model.RoutineMsgType_UsrMsg,
-							Pk:      &pkA,
+							Pk:      &publicKey0,
 							Msg:     `{"initiate": "sendConnectionRequest", "key":"4"}`,
 						},
 						outputs: outputPkAError,
@@ -185,7 +184,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 						description: "Invalid JSON",
 						input: model.RoutineInput{
 							MsgType: model.RoutineMsgType_UsrMsg,
-							Pk:      &pkA,
+							Pk:      &publicKey0,
 							Msg:     `)`,
 						},
 						outputs: outputPkAError,
@@ -196,8 +195,8 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 						description: "Extra properties",
 						input: model.RoutineInput{
 							MsgType: model.RoutineMsgType_UsrMsg,
-							Pk:      &pkA,
-							Msg:     `{"initiate": "sendConnectionRequest", "key":"` + hex.EncodeToString(pkB[:]) + `", "extraProperty!":{}}`,
+							Pk:      &publicKey0,
+							Msg:     `{"initiate": "sendConnectionRequest", "key":"` + (string)(publicKey1) + `", "extraProperty!":{}}`,
 						},
 						outputs: outputPkAError,
 					},
@@ -207,7 +206,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 			for i, test := range tests {
 				t.Run(strconv.Itoa(i), func(t *testing.T) {
 					client := &model.Client{}
-					client.SetPublicKey(&pkA)
+					client.SetPublicKey(&publicKey0)
 					hub := model.NewHub()
 					ectp := newEstablishConnectionToPeer(client, hub)
 
@@ -237,7 +236,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 							description: "B sends bad input",
 							input: model.RoutineInput{
 								MsgType: model.RoutineMsgType_UsrMsg,
-								Pk:      &pkB,
+								Pk:      &publicKey1,
 								Msg:     "lol",
 							},
 							outputs: outputPkBErrorToBoth,
@@ -265,7 +264,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 							description: "A sends bad input",
 							input: model.RoutineInput{
 								MsgType: model.RoutineMsgType_UsrMsg,
-								Pk:      &pkA,
+								Pk:      &publicKey0,
 								Msg:     "xd",
 							},
 							outputs: outputPkAErrorToBoth,
@@ -295,7 +294,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 							description: "A sends bad input",
 							input: model.RoutineInput{
 								MsgType: model.RoutineMsgType_UsrMsg,
-								Pk:      &pkA,
+								Pk:      &publicKey0,
 								Msg:     "lol",
 							},
 							outputs: outputPkAErrorToBoth,
@@ -304,7 +303,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 							description: "B sends bad input",
 							input: model.RoutineInput{
 								MsgType: model.RoutineMsgType_UsrMsg,
-								Pk:      &pkB,
+								Pk:      &publicKey1,
 								Msg:     "lol",
 							},
 							outputs: outputPkBErrorToBoth,
@@ -366,12 +365,12 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 					t.Run(test.description+"-"+strconv.Itoa(j), func(t *testing.T) {
 
 						clientA := &model.Client{}
-						clientA.SetPublicKey(&pkA)
+						clientA.SetPublicKey(&publicKey0)
 						clientB := &model.Client{}
-						clientB.SetPublicKey(&pkB)
+						clientB.SetPublicKey(&publicKey1)
 						hub := model.NewHub()
-						hub.AddClient(pkA, clientA)
-						hub.AddClient(pkB, clientB)
+						hub.AddClient(publicKey0, clientA)
+						hub.AddClient(publicKey1, clientB)
 						ectp := newEstablishConnectionToPeer(clientA, hub)
 
 						testRunner(t, ectp, append(test.prefaceSteps, testCase), testRunnerConfig{errorsOnLastStepOnly: true})
@@ -411,7 +410,7 @@ var ectpSchemaInitiateToB = `{
 		},
 		"key": {
 			"type":"string",
-			"pattern": "^[0123456789abcdef]{` + strconv.Itoa(model.KEYLEN*2) + `}$"
+			"pattern": "` + publicKeyPattern + `"
 		}
 	},
 	"required": ["initiate", "key"],
@@ -545,9 +544,6 @@ func ectpSchemaIceCandidate(payload string) string {
 	}`
 }
 
-var pkA = (model.PublicKey)([]byte("\xcf\xfd\x10\xba\xbe\xd1\x18\x2e\x7d\x8e\x6c\xff\x84\x57\x67\xee\xae\x45\x08\xaa\x13\xcd\x00\x37\x92\x33\xf5\x7f\x79\x9d\xc1\x8c\x1e\xef\xd3\x5b\x51\xdb\x36\xe3\xda\x47\x70\x73\x7a\x3f\x8f\xe7\x5e\xda\x0c\xd3\xc4\x8f\x23\xea\x70\x5f\x32\x34\xb0\x92\x9f\x9e"))
-var pkB = (model.PublicKey)([]byte("\x82\x30\xa6\x9f\x8a\x09\xc3\x84\xeb\xf8\xcc\xfd\xe7\x7a\x65\x06\xcf\x1c\xc0\x53\x6b\xa9\x6d\x6f\xde\x97\x13\xbd\x13\x63\xe0\x12\x17\x09\x25\xab\x5e\x0b\x21\x0e\xe0\x87\xbf\xd2\x15\x45\x87\xe7\x23\x5d\x02\xbe\xc1\x65\x48\xa2\xe2\x29\xc0\xee\xcc\x24\x14\x9d"))
-
 // TODO>>
 const sdpOffer = "replace this with an actual offer"
 const sdpAnswer = `replace this with an actual answer`
@@ -572,17 +568,17 @@ var ectpStepInitiateOnline = Step{
 	description: "A sends a request and server sends a message to B",
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_UsrMsg,
-		Pk:      &pkA,
+		Pk:      &publicKey0,
 		Msg: `{
 			"initiate": "sendConnectionRequest",
-			"key": "` + hex.EncodeToString(pkB[:]) + `"
+			"key": "` + (string)(publicKey1) + `"
 		}`,
 	},
 	outputs: []ExpectedOutput{
 		{
 			verifyTimeouts: true,
 			ro: model.RoutineOutput{
-				Pk:              &pkB,
+				Pk:              &publicKey1,
 				Msgs:            []string{ectpSchemaInitiateToB},
 				TimeoutEnabled:  true,
 				TimeoutDuration: ectpExpectedTimeoutDuration,
@@ -594,16 +590,16 @@ var ectpStepInitiateOnline = Step{
 var ectpStepInitiateOffline = Step{
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_UsrMsg,
-		Pk:      &pkA,
+		Pk:      &publicKey0,
 		Msg: `{
 			"initiate": "sendConnectionRequest",
-			"key": "` + hex.EncodeToString(pkB[:]) + `"
+			"key": "` + (string)(publicKey1) + `"
 		}`,
 	},
 	outputs: []ExpectedOutput{
 		{
 			ro: model.RoutineOutput{
-				Pk:   &pkA,
+				Pk:   &publicKey0,
 				Msgs: []string{ectpSchemaOfflineToA},
 				Done: true,
 			},
@@ -615,7 +611,7 @@ var ectpStepAcceptAndOffer = Step{
 	description: "B sends an offer and server passes it to A",
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_UsrMsg,
-		Pk:      &pkB,
+		Pk:      &publicKey1,
 		Msg: `{
 			"forward": {
 				"type": "acceptAndOffer",
@@ -630,7 +626,7 @@ var ectpStepAcceptAndOffer = Step{
 		{
 			verifyTimeouts: true,
 			ro: model.RoutineOutput{
-				Pk:              &pkA,
+				Pk:              &publicKey0,
 				Msgs:            []string{ectpSchemaAcceptAndOfferToA(sdpOffer)},
 				TimeoutEnabled:  true,
 				TimeoutDuration: ectpExpectedTimeoutDuration,
@@ -642,7 +638,7 @@ var ectpStepAcceptAndOffer = Step{
 var ectpStepReject = Step{
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_UsrMsg,
-		Pk:      &pkB,
+		Pk:      &publicKey1,
 		Msg: `{
 			"forward": {
 				"type": "reject"
@@ -652,14 +648,14 @@ var ectpStepReject = Step{
 	outputs: []ExpectedOutput{
 		{
 			ro: model.RoutineOutput{
-				Pk:   &pkB,
+				Pk:   &publicKey1,
 				Msgs: []string{schemaBareTerminate},
 				Done: true,
 			},
 		},
 		{
 			ro: model.RoutineOutput{
-				Pk:   &pkA,
+				Pk:   &publicKey0,
 				Msgs: []string{ectpSchemaRejectToA},
 				Done: true,
 			},
@@ -670,7 +666,7 @@ var ectpStepReject = Step{
 var ectpStepAnswer = Step{
 	description: "A sends an answer and server passes it to B",
 	input: model.RoutineInput{
-		Pk:      &pkA,
+		Pk:      &publicKey0,
 		MsgType: model.RoutineMsgType_UsrMsg,
 		Msg: `{
 			"forward": {
@@ -686,7 +682,7 @@ var ectpStepAnswer = Step{
 		{
 			verifyTimeouts: true,
 			ro: model.RoutineOutput{
-				Pk:              &pkB,
+				Pk:              &publicKey1,
 				Msgs:            []string{ectpSchemaAnswerToB(sdpAnswer)},
 				TimeoutEnabled:  true,
 				TimeoutDuration: ectpExpectedTimeoutDuration,
@@ -699,7 +695,7 @@ var ectpStepIceAToB = Step{
 	description: "A sends an ICE candidate, server forwards it to B",
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_UsrMsg,
-		Pk:      &pkA,
+		Pk:      &publicKey0,
 		Msg: `{
 			"forward": {
 				"type": "ICECandidate",
@@ -711,7 +707,7 @@ var ectpStepIceAToB = Step{
 		{
 			verifyTimeouts: true,
 			ro: model.RoutineOutput{
-				Pk:              &pkB,
+				Pk:              &publicKey1,
 				Msgs:            []string{ectpSchemaIceCandidate(ICECandidate0)},
 				TimeoutEnabled:  true,
 				TimeoutDuration: ectpExpectedTimeoutDuration,
@@ -724,7 +720,7 @@ var ectpStepIceBtoA = Step{
 	description: "B sends an ICE candidate, server forwards it to A",
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_UsrMsg,
-		Pk:      &pkB,
+		Pk:      &publicKey1,
 		Msg: `{
 			"forward": {
 				"type": "ICECandidate",
@@ -736,7 +732,7 @@ var ectpStepIceBtoA = Step{
 		{
 			verifyTimeouts: true,
 			ro: model.RoutineOutput{
-				Pk:              &pkA,
+				Pk:              &publicKey0,
 				Msgs:            []string{ectpSchemaIceCandidate(ICECandidate1)},
 				TimeoutEnabled:  true,
 				TimeoutDuration: ectpExpectedTimeoutDuration,
@@ -749,7 +745,7 @@ var ectpStepFinalIceA = Step{
 	description: "A sends an empty ICE candidate to denote end of ice candidates, server passes it to B",
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_UsrMsg,
-		Pk:      &pkA,
+		Pk:      &publicKey0,
 		Msg: `{
 			"forward": {
 				"type": "ICECandidate",
@@ -761,7 +757,7 @@ var ectpStepFinalIceA = Step{
 		{
 			verifyTimeouts: true,
 			ro: model.RoutineOutput{
-				Pk:              &pkB,
+				Pk:              &publicKey1,
 				Msgs:            []string{ectpSchemaIceCandidate(ICECandidateDone)},
 				TimeoutEnabled:  true,
 				TimeoutDuration: ectpExpectedTimeoutDuration,
@@ -774,7 +770,7 @@ var ectpStepFinalIceATerminate = Step{
 	description: "A sends an empty ICE candidate to denote end of ice candidates, server passes it to B and terminates both transaction sockets",
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_UsrMsg,
-		Pk:      &pkA,
+		Pk:      &publicKey0,
 		Msg: `{
 			"forward": {
 				"type": "ICECandidate",
@@ -786,14 +782,14 @@ var ectpStepFinalIceATerminate = Step{
 		{
 			// both clients have finished sending messages, send terminate:done to both
 			ro: model.RoutineOutput{
-				Pk:   &pkB,
+				Pk:   &publicKey1,
 				Msgs: []string{ectpSchemaIceCandidate(ICECandidateDone), schemaBareTerminate},
 				Done: true,
 			},
 		},
 		{
 			ro: model.RoutineOutput{
-				Pk:   &pkA,
+				Pk:   &publicKey0,
 				Msgs: []string{schemaBareTerminate},
 				Done: true,
 			},
@@ -805,7 +801,7 @@ var ectpStepFinalIceB = Step{
 	description: "B sends an empty ICE candidate to denote end of ice candidates, server passes it to A",
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_UsrMsg,
-		Pk:      &pkB,
+		Pk:      &publicKey1,
 		Msg: `{
 			"forward": {
 				"type": "ICECandidate",
@@ -817,7 +813,7 @@ var ectpStepFinalIceB = Step{
 		{
 			verifyTimeouts: true,
 			ro: model.RoutineOutput{
-				Pk:              &pkA,
+				Pk:              &publicKey0,
 				Msgs:            []string{ectpSchemaIceCandidate(ICECandidateDone)},
 				TimeoutEnabled:  true,
 				TimeoutDuration: ectpExpectedTimeoutDuration,
@@ -830,7 +826,7 @@ var ectpStepFinalIceBTerminate = Step{
 	description: "B sends an empty ICE candidate to denote end of ice candidates, server passes it to A and terminates both transaction sockets",
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_UsrMsg,
-		Pk:      &pkB,
+		Pk:      &publicKey1,
 		Msg: `{
 			"forward": {
 				"type": "ICECandidate",
@@ -842,14 +838,14 @@ var ectpStepFinalIceBTerminate = Step{
 		{
 			// both clients have finished sending messages, send terminate:done to both
 			ro: model.RoutineOutput{
-				Pk:   &pkA,
+				Pk:   &publicKey0,
 				Msgs: []string{ectpSchemaIceCandidate(ICECandidateDone), schemaBareTerminate},
 				Done: true,
 			},
 		},
 		{
 			ro: model.RoutineOutput{
-				Pk:   &pkB,
+				Pk:   &publicKey1,
 				Msgs: []string{schemaBareTerminate},
 				Done: true,
 			},
@@ -861,7 +857,7 @@ var stepPkADisconnect = Step{
 	description: "A disconnects",
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_ClientClose,
-		Pk:      &pkA,
+		Pk:      &publicKey0,
 	},
 	outputs: outputPkADisconnectedToB,
 }
@@ -870,7 +866,7 @@ var stepPkBDisconnect = Step{
 	description: "B disconnects",
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_ClientClose,
-		Pk:      &pkB,
+		Pk:      &publicKey1,
 	},
 	outputs: outputPkBDisconnectedToA,
 }
@@ -879,19 +875,19 @@ var stepPkACancel = Step{
 	description: "A cancels",
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_UsrMsg,
-		Pk:      &pkA,
+		Pk:      &publicKey0,
 		Msg:     `{"terminate":"cancel"}`,
 	},
 	outputs: []ExpectedOutput{
 		{
 			ro: model.RoutineOutput{
-				Pk:   &pkA,
+				Pk:   &publicKey0,
 				Done: true,
 			},
 		},
 		{
 			ro: model.RoutineOutput{
-				Pk:   &pkB,
+				Pk:   &publicKey1,
 				Msgs: []string{errorSchemaString("Peer cancelled the transaction")},
 				Done: true,
 			},
@@ -902,19 +898,19 @@ var stepPkBCancel = Step{
 	description: "B cancels",
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_UsrMsg,
-		Pk:      &pkB,
+		Pk:      &publicKey1,
 		Msg:     `{"terminate":"cancel"}`,
 	},
 	outputs: []ExpectedOutput{
 		{
 			ro: model.RoutineOutput{
-				Pk:   &pkB,
+				Pk:   &publicKey1,
 				Done: true,
 			},
 		},
 		{
 			ro: model.RoutineOutput{
-				Pk:   &pkA,
+				Pk:   &publicKey0,
 				Msgs: []string{errorSchemaString("Peer cancelled the transaction")},
 				Done: true,
 			},
@@ -926,7 +922,7 @@ var stepPkATimeout = Step{
 	description: "A times out",
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_Timeout,
-		Pk:      &pkA,
+		Pk:      &publicKey0,
 	},
 	outputs: outputPkATimeoutToBoth,
 }
@@ -935,7 +931,7 @@ var stepPkBTimeout = Step{
 	description: "B times out",
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_Timeout,
-		Pk:      &pkB,
+		Pk:      &publicKey1,
 	},
 	outputs: outputPkBTimeoutToBoth,
 }
@@ -943,7 +939,7 @@ var stepPkBTimeout = Step{
 var outputPkAError = []ExpectedOutput{
 	{
 		ro: model.RoutineOutput{
-			Pk:   &pkA,
+			Pk:   &publicKey0,
 			Msgs: []string{errorSchemaString()},
 			Done: true,
 		},
@@ -953,14 +949,14 @@ var outputPkAError = []ExpectedOutput{
 var outputPkAErrorToBoth = []ExpectedOutput{
 	{
 		ro: model.RoutineOutput{
-			Pk:   &pkA,
+			Pk:   &publicKey0,
 			Msgs: []string{errorSchemaString()},
 			Done: true,
 		},
 	},
 	{
 		ro: model.RoutineOutput{
-			Pk:   &pkB,
+			Pk:   &publicKey1,
 			Msgs: []string{errorSchemaString("Peer sent a malformed message")},
 			Done: true,
 		},
@@ -970,7 +966,7 @@ var outputPkAErrorToBoth = []ExpectedOutput{
 var outputPkATimeoutToBoth = []ExpectedOutput{
 	{
 		ro: model.RoutineOutput{
-			Pk:   &pkA,
+			Pk:   &publicKey0,
 			Msgs: []string{errorSchemaString("Timeout")},
 			Done: true,
 		},
@@ -978,7 +974,7 @@ var outputPkATimeoutToBoth = []ExpectedOutput{
 	{
 		ro: model.RoutineOutput{
 
-			Pk:   &pkB,
+			Pk:   &publicKey1,
 			Msgs: []string{errorSchemaString("Peer timed out")},
 			Done: true,
 		},
@@ -988,7 +984,7 @@ var outputPkATimeoutToBoth = []ExpectedOutput{
 var outputPkBErrorToBoth = []ExpectedOutput{
 	{
 		ro: model.RoutineOutput{
-			Pk:   &pkB,
+			Pk:   &publicKey1,
 			Msgs: []string{errorSchemaString()},
 			Done: true,
 		},
@@ -996,7 +992,7 @@ var outputPkBErrorToBoth = []ExpectedOutput{
 	{
 		ro: model.RoutineOutput{
 
-			Pk:   &pkA,
+			Pk:   &publicKey0,
 			Msgs: []string{errorSchemaString("Peer sent a malformed message")},
 			Done: true,
 		},
@@ -1006,7 +1002,7 @@ var outputPkBErrorToBoth = []ExpectedOutput{
 var outputPkBTimeoutToBoth = []ExpectedOutput{
 	{
 		ro: model.RoutineOutput{
-			Pk:   &pkB,
+			Pk:   &publicKey1,
 			Msgs: []string{errorSchemaString("Timeout")},
 			Done: true,
 		},
@@ -1014,7 +1010,7 @@ var outputPkBTimeoutToBoth = []ExpectedOutput{
 	{
 		ro: model.RoutineOutput{
 
-			Pk:   &pkA,
+			Pk:   &publicKey0,
 			Msgs: []string{errorSchemaString("Peer timed out")},
 			Done: true,
 		},
@@ -1024,7 +1020,7 @@ var outputPkBTimeoutToBoth = []ExpectedOutput{
 var outputPkADisconnectedToB = []ExpectedOutput{
 	{
 		ro: model.RoutineOutput{
-			Pk:   &pkB,
+			Pk:   &publicKey1,
 			Msgs: []string{errorSchemaString("Peer disconnected")},
 			Done: true,
 		},
@@ -1034,7 +1030,7 @@ var outputPkADisconnectedToB = []ExpectedOutput{
 var outputPkBDisconnectedToA = []ExpectedOutput{
 	{
 		ro: model.RoutineOutput{
-			Pk:   &pkA,
+			Pk:   &publicKey0,
 			Msgs: []string{errorSchemaString("Peer disconnected")},
 			Done: true,
 		},
