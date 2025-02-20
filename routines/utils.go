@@ -97,3 +97,4 @@ func publicKeyToString(pk model.PublicKey) string {
 
 // from https://stackoverflow.com/questions/475074/regex-to-parse-or-validate-base64-data
 const publicKeyPattern = "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+const signaturePattern = "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
