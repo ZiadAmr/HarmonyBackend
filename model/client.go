@@ -45,6 +45,10 @@ type Client struct {
 	//
 	danglingClientCloseChannels           []chan struct{}
 	modifyDanglingClientCloseChannelsLock sync.Mutex
+
+	// PUBLIC METHODS
+	// lock to prevent simultaneous comeOnline transactions
+	ComeOnlineLock sync.Mutex
 }
 
 func MakeClient(conn Conn) Client {

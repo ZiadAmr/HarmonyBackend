@@ -205,6 +205,96 @@ func TestComeOnline(t *testing.T) {
 
 	})
 
+	t.Run("Cancels if another comeOnline is in progress", func(t *testing.T) {
+		// first comeonline. Run these steps without checking the result
+		co0Tests := [][]Step{
+			{
+				coStepInitiate,
+			},
+			{
+				coStepInitiate,
+				coStepValidPk(publicKey0, testMessage),
+			},
+		}
+
+		// second comeonline should fail, as the first is not completed.
+		co1Test := []Step{
+			{
+				description: "Comeonline fails to start because another is in progress",
+				input: model.RoutineInput{
+					MsgType: model.RoutineMsgType_UsrMsg,
+					Msg:     `{"initiate": "comeOnline"}`,
+				},
+				outputs: []ExpectedOutput{
+					{
+						ro: model.RoutineOutput{
+							Done: true,
+							Msgs: []string{errorSchemaString("Another comeOnline routine is in progress")},
+						},
+					},
+				},
+			},
+		}
+
+		for i, test := range co0Tests {
+			t.Run(strconv.Itoa(i), func(t *testing.T) {
+
+				client := &model.Client{}
+				hub := model.NewHub()
+				mockRndMsgGen := fixedMessageGenerator{testMessage}
+				co0 := newComeOnlineDependencyInj(client, hub, mockRndMsgGen)
+
+				// manually run the first test - after this point it is not complete
+				for _, step := range test {
+					co0.Next(step.input)
+				}
+
+				// start another comeOnline
+				co1 := newComeOnlineDependencyInj(client, hub, mockRndMsgGen)
+				testRunner(t, co1, co1Test) // expect it to fail
+			})
+		}
+	})
+
+	t.Run("Allows subsequent comeOnline's after a failed one", func(t *testing.T) {
+		co0Tests := [][]Step{
+			{
+				coStepInitiate,
+				coStepValidPk(publicKey0, testMessage),
+				coStepInvalidSignature("!!!"),
+			},
+			{
+				coStepInitiate,
+				coStepBadPublicKey("!"),
+			},
+		}
+
+		co1Test := []Step{
+			coStepInitiate,
+			coStepValidPk(publicKey0, testMessage),
+			coStepValidSignature(testPk0Signature),
+		}
+
+		for i, test := range co0Tests {
+			t.Run(strconv.Itoa(i), func(t *testing.T) {
+
+				client := &model.Client{}
+				hub := model.NewHub()
+				mockRndMsgGen := fixedMessageGenerator{testMessage}
+				co0 := newComeOnlineDependencyInj(client, hub, mockRndMsgGen)
+
+				// manually run the first test - it has completed at this point.
+				for _, step := range test {
+					co0.Next(step.input)
+				}
+
+				// start another comeOnline
+				co1 := newComeOnlineDependencyInj(client, hub, mockRndMsgGen)
+				testRunner(t, co1, co1Test) // expect it not to fail
+			})
+		}
+	})
+
 	t.Run("Rejects immediately if public key is already set", func(t *testing.T) {
 
 		pk := publicKey0

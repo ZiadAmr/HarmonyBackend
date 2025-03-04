@@ -1,7 +1,5 @@
 package routines
 
-// todo AT MOST ONE instance of this routine for each user should be running at any time.
-
 import (
 	"crypto/ed25519"
 	"crypto/rand"
@@ -26,6 +24,8 @@ type ComeOnline struct {
 	signThis         string
 	publicKey        *model.PublicKey
 	ed25519PublicKey *ed25519.PublicKey
+
+	holdsComeOnlineLock bool
 }
 
 type RandomMessageGenerator interface {
@@ -51,7 +51,7 @@ type comeOnlineStep int
 const ( // enum
 	comeOnlineStep_hello comeOnlineStep = iota
 	comeOnlineStep_recvPublicKey
-	comeOnlineSign_recvSignature
+	comeOnlineStep_recvSignature
 )
 
 // constructor
@@ -70,6 +70,28 @@ func newComeOnlineDependencyInj(client *model.Client, hub *model.Hub, randMsgGen
 
 func (c *ComeOnline) Next(args model.RoutineInput) []model.RoutineOutput {
 
+	// attempt to get lock
+	if !c.holdsComeOnlineLock {
+		succeed := c.client.ComeOnlineLock.TryLock()
+		if !succeed {
+			return makeCOOutput(true, MakeJSONError("Another comeOnline routine is in progress"))
+		}
+		c.holdsComeOnlineLock = true
+	}
+
+	nextResult := c.safeNext(args)
+
+	// check if lock needs to be released
+	if args.MsgType == model.RoutineMsgType_ClientClose || (len(nextResult) > 0 && nextResult[0].Done) {
+		c.client.ComeOnlineLock.Unlock()
+	}
+
+	return nextResult
+}
+
+/**Called by Next() only if the lock is obtained.*/
+func (c *ComeOnline) safeNext(args model.RoutineInput) []model.RoutineOutput {
+
 	switch args.MsgType {
 	case model.RoutineMsgType_ClientClose:
 		return []model.RoutineOutput{}
@@ -84,7 +106,7 @@ func (c *ComeOnline) Next(args model.RoutineInput) []model.RoutineOutput {
 			return c.hello()
 		case comeOnlineStep_recvPublicKey:
 			return c.recvPublicKey(args.Msg)
-		case comeOnlineSign_recvSignature:
+		case comeOnlineStep_recvSignature:
 			return c.recvSignature(args.Msg)
 		}
 		panic("unrecognized step")
@@ -130,7 +152,7 @@ func (c *ComeOnline) recvPublicKey(msg string) []model.RoutineOutput {
 	signThisMsgStr, _ := json.Marshal(signThisMsgData)
 
 	// set next step
-	c.step = comeOnlineSign_recvSignature
+	c.step = comeOnlineStep_recvSignature
 
 	return makeCOOutput(false, (string)(signThisMsgStr))
 }
