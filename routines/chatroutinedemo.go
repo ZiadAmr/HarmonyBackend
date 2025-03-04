@@ -1,7 +1,6 @@
 package routines
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"harmony/backend/model"
@@ -35,7 +34,7 @@ func (r *ChatRoutineDemo) Next(args model.RoutineInput) []model.RoutineOutput {
 		}{}
 
 		json.Unmarshal([]byte(args.Msg), &usrMsg)
-		peerPkBytes, _ := hex.DecodeString(usrMsg.PublicKey)
+		peerPkBytes, _ := parsePublicKey(usrMsg.PublicKey)
 		peerPk := (*model.PublicKey)(peerPkBytes)
 
 		// the first message that they send sets their own public key and doesn't actually send any message

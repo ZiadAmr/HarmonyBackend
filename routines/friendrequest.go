@@ -1,10 +1,8 @@
 package routines
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"harmony/backend/model"
-	"strconv"
 	"time"
 
 	"github.com/xeipuuv/gojsonschema"
@@ -83,7 +81,7 @@ var frEntrySchema = func() *gojsonschema.Schema {
 			},
 			"key": {
 				"type":"string",
-				"pattern": "^[0123456789abcdef]{` + strconv.Itoa(model.KEYLEN*2) + `}$"
+				"pattern": "` + publicKeyPattern + `"
 			}
 		},
 		"required": ["initiate", "key"],
@@ -134,7 +132,7 @@ func (r *FriendRequest) entry(args model.RoutineInput) []model.RoutineOutput {
 				Pk:              r.pkB,
 				TimeoutDuration: frTimeOut,
 				TimeoutEnabled:  true,
-				Msgs:            []string{`{"initiate":"receiveFriendRequest","key":"` + hex.EncodeToString(r.pkA[:]) + `"}`},
+				Msgs:            []string{`{"initiate":"receiveFriendRequest","key":"` + publicKeyToString(*r.pkA) + `"}`},
 			},
 		}
 	} else {

@@ -1,10 +1,8 @@
 package routines
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"harmony/backend/model"
-	"strconv"
 
 	"github.com/xeipuuv/gojsonschema"
 )
@@ -61,7 +59,7 @@ func (r *FriendRejection) Next(args model.RoutineInput) []model.RoutineOutput {
 			{
 				Pk:   r.pkB,
 				Done: true,
-				Msgs: []string{`{"initiate":"receiveFriendRejection","terminate":"done","key":"` + hex.EncodeToString(r.pkA[:]) + `"}`},
+				Msgs: []string{`{"initiate":"receiveFriendRejection","terminate":"done","key":"` + publicKeyToString(*r.pkA) + `"}`},
 			},
 		}
 	} else {
@@ -85,7 +83,7 @@ var frejSchema = func() *gojsonschema.Schema {
 			},
 			"key": {
 				"type":"string",
-				"pattern": "^[0123456789abcdef]{` + strconv.Itoa(model.KEYLEN*2) + `}$"
+				"pattern": "` + publicKeyPattern + `"
 			}
 		},
 		"required": ["initiate", "key"],

@@ -3,7 +3,6 @@ package routines
 import (
 	"encoding/json"
 	"harmony/backend/model"
-	"strconv"
 	"time"
 
 	"github.com/xeipuuv/gojsonschema"
@@ -120,7 +119,7 @@ var ectpEntrySchema = func() *gojsonschema.Schema {
 			},
 			"key": {
 				"type":"string",
-				"pattern": "^[0123456789abcdef]{` + strconv.Itoa(model.KEYLEN*2) + `}$"
+				"pattern": "` + publicKeyPattern + `"
 			}
 		},
 		"required": ["initiate", "key"],
