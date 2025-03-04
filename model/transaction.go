@@ -102,12 +102,12 @@ func (t *transaction) distributeRoutineOutputs(hub *Hub, closedRoChans *map[chan
 					close(roChan)
 				}
 			} else {
-				// todo need to create a new transaction if it does not exist
 				peerClient, exists := hub.GetClient(*routineOutput.Pk)
 				if !exists {
 					fmt.Printf("client does not exist")
 					continue
 				}
+				// create a new transaction socket if it does not exist
 				tSocket := peerClient.newTransactionSocket(t, newId())
 				err := peerClient.addTransactionSocket(tSocket)
 				if err == nil {

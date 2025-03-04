@@ -85,7 +85,6 @@ func parsePublicKey(pkstr string) (*model.PublicKey, error) {
 	// 	return nil, err
 	// }
 
-	// TODO check that it is a valid public key
 	return (*model.PublicKey)(&pkstr), nil
 }
 
