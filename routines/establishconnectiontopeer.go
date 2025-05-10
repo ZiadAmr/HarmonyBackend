@@ -11,6 +11,7 @@ import (
 type ECTPState int
 
 const ectpTimeoutDuration = 20 * time.Second
+const ectpMaxICECandidates = 20
 
 const (
 	ectp_entry ECTPState = iota
@@ -22,6 +23,8 @@ const (
 type EstablishConnectionToPeer struct {
 	pkA                         *model.PublicKey
 	pkB                         *model.PublicKey
+	pkAICECandidateCount        int
+	pkBICECandidateCount        int
 	pkAHasSentEmptyICECandidate bool
 	pkBHasSentEmptyICECandidate bool
 	hub                         *model.Hub
@@ -460,6 +463,7 @@ func (r *EstablishConnectionToPeer) iceCandidates(args model.RoutineInput) []mod
 
 	// check who is sending the ice candidate
 	// reject messages sent by a client who has already sent an empty ICE candidate (indicating that they had finished sending messages)
+	// reject messages if too many ICE candidates sent
 	var toPk *model.PublicKey
 	if *args.Pk == *r.pkA {
 		toPk = r.pkB
@@ -512,6 +516,29 @@ func (r *EstablishConnectionToPeer) iceCandidates(args model.RoutineInput) []mod
 			if r.pkAHasSentEmptyICECandidate {
 				terminate = true
 			}
+		}
+	} else {
+		// if this isn't the end of the ICE candidates, check that the client has not exceeded the max candidate count
+		// otherwise increase ICE candidate count for relevant peer
+		const guiltyPeerErrorMsg = "You have sent too many ICE candidates"
+		const innocentPeerErrorMsg = "Peer is sending too many ICE candidates"
+		switch *args.Pk {
+		case *r.pkA:
+			if r.pkAICECandidateCount >= ectpMaxICECandidates {
+				return append(
+					ectpError(r.pkA, guiltyPeerErrorMsg),
+					ectpError(r.pkB, innocentPeerErrorMsg)...,
+				)
+			}
+			r.pkAICECandidateCount++
+		case *r.pkB:
+			if r.pkBICECandidateCount >= ectpMaxICECandidates {
+				return append(
+					ectpError(r.pkA, innocentPeerErrorMsg),
+					ectpError(r.pkB, guiltyPeerErrorMsg)...,
+				)
+			}
+			r.pkBICECandidateCount++
 		}
 	}
 

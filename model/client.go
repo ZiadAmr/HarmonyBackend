@@ -7,6 +7,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -15,6 +16,9 @@ import (
 
 // routine input buffer size
 const RI_BUFFER_SIZE = 10
+
+// maximum number of concurrent transactions created by this client
+const MAX_TRANSACTIONS = 1
 
 type PublicKey string
 
@@ -45,6 +49,9 @@ type Client struct {
 	//
 	danglingClientCloseChannels           []chan struct{}
 	modifyDanglingClientCloseChannelsLock sync.Mutex
+
+	transactionCount       int
+	modifyTransactionCount sync.Mutex
 
 	// PUBLIC METHODS
 	// lock to prevent simultaneous comeOnline transactions
@@ -108,9 +115,21 @@ func (c *Client) Route(hub *Hub, makeRoutine func() Routine) {
 			continue
 		}
 
-		// otherwise create a new transaction
-		tNew := c.newTransaction(makeRoutine())
-		tSocketNew := c.newTransactionSocket(tNew, id)
+		// otherwise need to create a new transaction
+
+		// limit number of transactions - check
+		if c.transactionCount >= MAX_TRANSACTIONS {
+			c.writeTransactionMessage(id, `{"terminate":"cancel","error":"Max number of transactions (`+strconv.Itoa(MAX_TRANSACTIONS)+`) reached, message ignored"}`)
+			continue
+		}
+		func() {
+			defer c.modifyTransactionCount.Unlock()
+			c.modifyTransactionCount.Lock()
+			c.transactionCount++
+		}()
+
+		tNew := newTransaction(makeRoutine())
+		tSocketNew := newTransactionSocket(tNew, id)
 
 		// add to transaction list
 		err = c.addTransactionSocket(tSocketNew)
@@ -125,7 +144,14 @@ func (c *Client) Route(hub *Hub, makeRoutine func() Routine) {
 		}
 
 		// route transaction
-		go tNew.route(hub)
+		go func() {
+			tNew.route(hub)
+			func() {
+				defer c.modifyTransactionCount.Unlock()
+				c.modifyTransactionCount.Lock()
+				c.transactionCount--
+			}()
+		}()
 
 		// route transaction socket (one for each client that interacts with this routine)
 		go c.routeTransactionSocket(tSocketNew)
@@ -138,25 +164,6 @@ func (c *Client) Route(hub *Hub, makeRoutine func() Routine) {
 	// breaks out here when the websocket is closed.
 	c.close()
 
-}
-
-func (c *Client) newTransactionSocket(transaction *transaction, id [IDLEN]byte) *transactionSocket {
-	roChan := make(chan RoutineOutput)
-	return &transactionSocket{
-		clientMsgChan:   make(chan string, 50),
-		clientCloseChan: make(chan struct{}),
-		roChan:          roChan,
-		transaction:     transaction,
-		id:              id,
-	}
-}
-
-func (c *Client) newTransaction(routine Routine) *transaction {
-	return &transaction{
-		pkToROChan: make(map[PublicKey](chan RoutineOutput)),
-		riChan:     make(chan routineInputWrapper, RI_BUFFER_SIZE),
-		routine:    routine,
-	}
 }
 
 // Add a new transaction to the client.
