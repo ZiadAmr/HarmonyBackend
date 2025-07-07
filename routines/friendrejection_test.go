@@ -1,7 +1,6 @@
 package routines
 
 import (
-	"encoding/hex"
 	"harmony/backend/model"
 	"testing"
 )
@@ -16,9 +15,9 @@ func TestFriendRejection(t *testing.T) {
 			}
 
 			clientA := &model.Client{}
-			clientA.SetPublicKey(&pkA)
+			clientA.SetPublicKey(&publicKey0)
 			clientB := &model.Client{}
-			clientB.SetPublicKey(&pkB)
+			clientB.SetPublicKey(&publicKey1)
 			hub := model.NewHub()
 			hub.AddClient(*clientA.GetPublicKey(), clientA)
 			hub.AddClient(*clientB.GetPublicKey(), clientB)
@@ -35,7 +34,7 @@ func TestFriendRejection(t *testing.T) {
 			}
 
 			clientA := &model.Client{}
-			clientA.SetPublicKey(&pkA)
+			clientA.SetPublicKey(&publicKey0)
 			hub := model.NewHub()
 			hub.AddClient(*clientA.GetPublicKey(), clientA)
 			fr := newFriendRejection(clientA, hub)
@@ -69,7 +68,7 @@ func TestFriendRejection(t *testing.T) {
 
 			clientA := &model.Client{}
 			clientB := &model.Client{}
-			clientB.SetPublicKey(&pkB)
+			clientB.SetPublicKey(&publicKey1)
 			hub := model.NewHub()
 			hub.AddClient(*clientB.GetPublicKey(), clientB)
 
@@ -84,16 +83,16 @@ func TestFriendRejection(t *testing.T) {
 					description: "User sends a rejection to themself",
 					input: model.RoutineInput{
 						MsgType: model.RoutineMsgType_UsrMsg,
-						Pk:      &pkA,
+						Pk:      &publicKey0,
 						Msg: `{
 							"initiate": "sendFriendRejection",
-							"key": "` + hex.EncodeToString(pkA[:]) + `"
+							"key": "` + (string)(publicKey0) + `"
 						}`,
 					},
 					outputs: []ExpectedOutput{
 						{
 							ro: model.RoutineOutput{
-								Pk:   &pkA,
+								Pk:   &publicKey0,
 								Msgs: []string{errorSchemaString("You can't reject yourself")},
 								Done: true,
 							},
@@ -103,7 +102,7 @@ func TestFriendRejection(t *testing.T) {
 			}
 
 			clientA := &model.Client{}
-			clientA.SetPublicKey(&pkA)
+			clientA.SetPublicKey(&publicKey0)
 			hub := model.NewHub()
 			hub.AddClient(*clientA.GetPublicKey(), clientA)
 
@@ -117,7 +116,7 @@ func TestFriendRejection(t *testing.T) {
 				description: "No key",
 				input: model.RoutineInput{
 					MsgType: model.RoutineMsgType_UsrMsg,
-					Pk:      &pkA,
+					Pk:      &publicKey0,
 					Msg:     `{"initiate": "sendFriendRejection"}`,
 				},
 				outputs: outputPkAError,
@@ -127,7 +126,7 @@ func TestFriendRejection(t *testing.T) {
 				description: "Key in wrong format",
 				input: model.RoutineInput{
 					MsgType: model.RoutineMsgType_UsrMsg,
-					Pk:      &pkA,
+					Pk:      &publicKey0,
 					Msg:     `{"initiate": "sendFriendRejection", "key":"4"}`,
 				},
 				outputs: outputPkAError,
@@ -137,7 +136,7 @@ func TestFriendRejection(t *testing.T) {
 				description: "Invalid JSON",
 				input: model.RoutineInput{
 					MsgType: model.RoutineMsgType_UsrMsg,
-					Pk:      &pkA,
+					Pk:      &publicKey0,
 					Msg:     `)`,
 				},
 				outputs: outputPkAError,
@@ -147,8 +146,8 @@ func TestFriendRejection(t *testing.T) {
 				description: "Extra properties",
 				input: model.RoutineInput{
 					MsgType: model.RoutineMsgType_UsrMsg,
-					Pk:      &pkA,
-					Msg:     `{"initiate": "sendFriendRejection", "key":"` + hex.EncodeToString(pkB[:]) + `", "extraProperty!":{}}`,
+					Pk:      &publicKey0,
+					Msg:     `{"initiate": "sendFriendRejection", "key":"` + (string)(publicKey1) + `", "extraProperty!":{}}`,
 				},
 				outputs: outputPkAError,
 			},
@@ -157,9 +156,9 @@ func TestFriendRejection(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.description, func(t *testing.T) {
 				clientA := &model.Client{}
-				clientA.SetPublicKey(&pkA)
+				clientA.SetPublicKey(&publicKey0)
 				clientB := &model.Client{}
-				clientB.SetPublicKey(&pkB)
+				clientB.SetPublicKey(&publicKey1)
 				hub := model.NewHub()
 				hub.AddClient(*clientA.GetPublicKey(), clientA)
 				hub.AddClient(*clientB.GetPublicKey(), clientB)
@@ -176,22 +175,22 @@ var frejStepOnline = Step{
 	description: "Send friend rejection to online friend",
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_UsrMsg,
-		Pk:      &pkA,
+		Pk:      &publicKey0,
 		Msg: `{
 			"initiate": "sendFriendRejection",
-			"key": "` + hex.EncodeToString(pkB[:]) + `"
+			"key": "` + (string)(publicKey1) + `"
 		}`,
 	},
 	outputs: []ExpectedOutput{
 		{
 			ro: model.RoutineOutput{
-				Pk:   &pkA,
+				Pk:   &publicKey0,
 				Msgs: []string{frejSchemaOnlineToA},
 				Done: true,
 			},
 		}, {
 			ro: model.RoutineOutput{
-				Pk:   &pkB,
+				Pk:   &publicKey1,
 				Msgs: []string{frejSchemaOnlineToB},
 				Done: true,
 			},
@@ -203,16 +202,16 @@ var frejStepOffline = Step{
 	description: "Send friend rejection to offline friend",
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_UsrMsg,
-		Pk:      &pkA,
+		Pk:      &publicKey0,
 		Msg: `{
 			"initiate": "sendFriendRejection",
-			"key": "` + hex.EncodeToString(pkB[:]) + `"
+			"key": "` + (string)(publicKey1) + `"
 		}`,
 	},
 	outputs: []ExpectedOutput{
 		{
 			ro: model.RoutineOutput{
-				Pk:   &pkA,
+				Pk:   &publicKey0,
 				Msgs: []string{frejSchemaOfflineToA},
 				Done: true,
 			},
@@ -261,7 +260,7 @@ var frejSchemaOnlineToB = `{
 			"const": "done"
 		},
 		"key": {
-			"const": "` + hex.EncodeToString(pkA[:]) + `"
+			"const": "` + (string)(publicKey0) + `"
 		}
 	},
 	"additionalProperties": false,

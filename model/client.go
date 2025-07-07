@@ -13,13 +13,10 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// length of key in bytes
-const KEYLEN = 64
-
 // routine input buffer size
 const RI_BUFFER_SIZE = 10
 
-type PublicKey [KEYLEN]byte
+type PublicKey string
 
 // *websocket.Conn, but only the methods that are being used here
 // So that *websocket.Conn can be mocked.
@@ -48,6 +45,10 @@ type Client struct {
 	//
 	danglingClientCloseChannels           []chan struct{}
 	modifyDanglingClientCloseChannelsLock sync.Mutex
+
+	// PUBLIC METHODS
+	// lock to prevent simultaneous comeOnline transactions
+	ComeOnlineLock sync.Mutex
 }
 
 func MakeClient(conn Conn) Client {

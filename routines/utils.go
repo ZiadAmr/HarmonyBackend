@@ -1,9 +1,7 @@
 package routines
 
 import (
-	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"harmony/backend/model"
 	"strings"
 
@@ -79,16 +77,23 @@ var routineContructorImplementations = RoutineConstructors{
 }
 
 func parsePublicKey(pkstr string) (*model.PublicKey, error) {
-	if len(pkstr) != model.KEYLEN*2 {
-		return nil, errors.New("key incorrect length")
-	}
-	pk, err := hex.DecodeString(pkstr)
-	if err != nil {
-		return nil, err
-	}
-	return (*model.PublicKey)(pk), nil
+	// if len(pkstr) != publicKeyBase32Len {
+	// 	return nil, errors.New("key incorrect length")
+	// }
+	// pk, err := base32.StdEncoding.DecodeString(pkstr)
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	return (*model.PublicKey)(&pkstr), nil
 }
 
 func publicKeyToString(pk model.PublicKey) string {
-	return hex.EncodeToString(pk[:])
+	return (string)(pk)
 }
+
+// const publicKeyBase32Len = 472
+
+// from https://stackoverflow.com/questions/475074/regex-to-parse-or-validate-base64-data
+const publicKeyPattern = "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+const signaturePattern = "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"

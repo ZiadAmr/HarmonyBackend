@@ -1,7 +1,6 @@
 package routines
 
 import (
-	"encoding/hex"
 	"harmony/backend/model"
 	"strconv"
 	"testing"
@@ -16,6 +15,25 @@ const comeOnlineVersionResponseSchema = `{
 	"required": ["version"],
 	"additionalProperties": false
 }`
+
+// `message` should be escaped for json.
+var comeOnlineSignThisResponseSchema = func(message ...string) string {
+	var frag string
+	if len(message) > 0 {
+		frag = `{"const": "` + message[0] + `"}`
+	} else {
+		frag = `{"type": "string"}`
+	}
+	return `{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "signThis": ` + frag + `
+  },
+  "required": ["signThis"],
+  "additionalProperties": false
+}`
+}
 
 const comeOnlineWelcomeResponseSchema = `{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -34,44 +52,17 @@ func TestComeOnline(t *testing.T) {
 
 		// define tests
 		tests := []struct {
-			key   model.PublicKey
-			steps []Step
+			key       model.PublicKey
+			msgToSign string
+			steps     []Step
 		}{
 			{
-				key: func() model.PublicKey {
-					key, _ := hex.DecodeString("cffd10babed1182e7d8e6cff845767eeae4508aa13cd00379233f57f799dc18c1eefd35b51db36e3da4770737a3f8fe75eda0cd3c48f23ea705f3234b0929f9e")
-					return (model.PublicKey)(key)
-				}(),
+				key:       publicKey0,
+				msgToSign: testMessage,
 				steps: []Step{
-					{
-						input: model.RoutineInput{
-							MsgType: model.RoutineMsgType_UsrMsg,
-							Msg:     `{"initiate": "comeOnline"}`,
-						},
-						outputs: []ExpectedOutput{
-							{
-								ro: model.RoutineOutput{
-									Msgs: []string{comeOnlineVersionResponseSchema},
-								},
-							},
-						},
-					},
-					{
-						input: model.RoutineInput{
-							MsgType: model.RoutineMsgType_UsrMsg,
-							Msg: `{
-								"publicKey": "cffd10babed1182e7d8e6cff845767eeae4508aa13cd00379233f57f799dc18c1eefd35b51db36e3da4770737a3f8fe75eda0cd3c48f23ea705f3234b0929f9e"
-							}`,
-						},
-						outputs: []ExpectedOutput{
-							{
-								ro: model.RoutineOutput{
-									Msgs: []string{comeOnlineWelcomeResponseSchema},
-									Done: true,
-								},
-							},
-						},
-					},
+					coStepInitiate,
+					coStepValidPk(publicKey0, testMessage),
+					coStepValidSignature(testPk0Signature),
 				},
 			},
 		}
@@ -83,8 +74,9 @@ func TestComeOnline(t *testing.T) {
 				// mocks
 				mockClient := &model.Client{}
 				mockHub := model.NewHub()
+				mockRndMsgGen := fixedMessageGenerator{tt.msgToSign}
 
-				co := newComeOnline(mockClient, mockHub)
+				co := newComeOnlineDependencyInj(mockClient, mockHub, mockRndMsgGen)
 
 				testRunner(t, co, tt.steps)
 
@@ -109,52 +101,43 @@ func TestComeOnline(t *testing.T) {
 	t.Run("cancels transaction on bad public key message", func(t *testing.T) {
 
 		tests := []struct {
-			steps []Step
+			description  string
+			prefaceSteps []Step
+			cases        []Step
 		}{
 			{
-				steps: []Step{
-					{
-						input: model.RoutineInput{
-							MsgType: model.RoutineMsgType_UsrMsg,
-							Msg:     `{"initiate": "comeOnline"}`,
-						},
-						outputs: []ExpectedOutput{
-							{
-								ro: model.RoutineOutput{
-									Msgs: []string{comeOnlineVersionResponseSchema},
-								},
-							},
-						},
-					},
-					{
-						input: model.RoutineInput{
-							MsgType: model.RoutineMsgType_UsrMsg,
-							Msg:     `bad input!!!!!`,
-						},
-						outputs: []ExpectedOutput{
-							{
-								ro: model.RoutineOutput{
-									Msgs: []string{errorSchemaString()},
-									Done: true,
-								},
-							},
-						},
-					},
+				description: "Bad public key",
+				prefaceSteps: []Step{
+					coStepInitiate,
+				},
+				cases: []Step{
+					coStepBadPublicKey(`{"publicKey": "illegal_characters______________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________"}`),
+					coStepBadPublicKey(`{"publicKey": "NBSWY3DPEE======"}`),
+					coStepBadPublicKey(`{}`),
+					coStepBadPublicKey(`{"publicKey": "` + (string)(publicKey0) + `","extraUnwantedProperty": "boo!"}`),
+					coStepBadPublicKey(`{"publicKey": false}`),
+					coStepBadPublicKey((string)(publicKey0)),
+					coStepBadPublicKey(`{"publicKey": "0123456789ABCDE="}`, "public key is not ed25519"),
+					coStepBadPublicKey(`{"publicKey": "MCoxBQYDK2VwAyEA6pf9wPoa7Y6zeuwENUOifdDYN9kmYrd4jWIa3032spU="}`, "public key is not ed25519" /*invalid key - character modified in the header*/),
+					coStepBadPublicKey(`{"publicKey": "MEkwEwYHKoZIzj0CAQYIKoZIzj0DAQEDMgAEoGveud25v3hQMWyISkUboxNF/0dXLnTn1G4kmdmb44NMstp5bvxdXDrRg4F0l+ZK"}`, "public key is not ed25519" /*invalid key - uses NIST192p curve instead of Ed25519*/),
 				},
 			},
 		}
 
-		for i, tt := range tests {
-			t.Run(strconv.Itoa(i), func(t *testing.T) {
+		for _, test := range tests {
 
-				// mocks
-				mockClient := &model.Client{}
-				mockHub := model.NewHub()
+			for _, testCase := range test.cases {
 
-				co := newComeOnline(mockClient, mockHub)
+				t.Run(test.description+"-"+testCase.input.Msg, func(t *testing.T) {
 
-				testRunner(t, co, tt.steps)
-			})
+					mockClient := &model.Client{}
+					mockHub := model.NewHub()
+					co := newComeOnline(mockClient, mockHub)
+
+					testRunner(t, co, append(test.prefaceSteps, testCase), testRunnerConfig{errorsOnLastStepOnly: true})
+				})
+
+			}
 		}
 	})
 
@@ -178,7 +161,7 @@ func TestComeOnline(t *testing.T) {
 				input: model.RoutineInput{
 					MsgType: model.RoutineMsgType_UsrMsg,
 					Msg: `{
-						"publicKey": "cffd10babed1182e7d8e6cff845767eeae4508aa13cd00379233f57f799dc18c1eefd35b51db36e3da4770737a3f8fe75eda0cd3c48f23ea705f3234b0929f9e"
+						"publicKey": "` + (string)(publicKey0) + `"
 					}`,
 				},
 				outputs: []ExpectedOutput{
@@ -197,7 +180,7 @@ func TestComeOnline(t *testing.T) {
 		hub := model.NewHub()
 
 		client0 := &model.Client{}
-		key := (model.PublicKey)([]byte("\xcf\xfd\x10\xba\xbe\xd1\x18\x2e\x7d\x8e\x6c\xff\x84\x57\x67\xee\xae\x45\x08\xaa\x13\xcd\x00\x37\x92\x33\xf5\x7f\x79\x9d\xc1\x8c\x1e\xef\xd3\x5b\x51\xdb\x36\xe3\xda\x47\x70\x73\x7a\x3f\x8f\xe7\x5e\xda\x0c\xd3\xc4\x8f\x23\xea\x70\x5f\x32\x34\xb0\x92\x9f\x9e"))
+		key := publicKey0
 		client0.SetPublicKey(&key)
 		hub.AddClient(key, client0)
 
@@ -222,9 +205,99 @@ func TestComeOnline(t *testing.T) {
 
 	})
 
+	t.Run("Cancels if another comeOnline is in progress", func(t *testing.T) {
+		// first comeonline. Run these steps without checking the result
+		co0Tests := [][]Step{
+			{
+				coStepInitiate,
+			},
+			{
+				coStepInitiate,
+				coStepValidPk(publicKey0, testMessage),
+			},
+		}
+
+		// second comeonline should fail, as the first is not completed.
+		co1Test := []Step{
+			{
+				description: "Comeonline fails to start because another is in progress",
+				input: model.RoutineInput{
+					MsgType: model.RoutineMsgType_UsrMsg,
+					Msg:     `{"initiate": "comeOnline"}`,
+				},
+				outputs: []ExpectedOutput{
+					{
+						ro: model.RoutineOutput{
+							Done: true,
+							Msgs: []string{errorSchemaString("Another comeOnline routine is in progress")},
+						},
+					},
+				},
+			},
+		}
+
+		for i, test := range co0Tests {
+			t.Run(strconv.Itoa(i), func(t *testing.T) {
+
+				client := &model.Client{}
+				hub := model.NewHub()
+				mockRndMsgGen := fixedMessageGenerator{testMessage}
+				co0 := newComeOnlineDependencyInj(client, hub, mockRndMsgGen)
+
+				// manually run the first test - after this point it is not complete
+				for _, step := range test {
+					co0.Next(step.input)
+				}
+
+				// start another comeOnline
+				co1 := newComeOnlineDependencyInj(client, hub, mockRndMsgGen)
+				testRunner(t, co1, co1Test) // expect it to fail
+			})
+		}
+	})
+
+	t.Run("Allows subsequent comeOnline's after a failed one", func(t *testing.T) {
+		co0Tests := [][]Step{
+			{
+				coStepInitiate,
+				coStepValidPk(publicKey0, testMessage),
+				coStepInvalidSignature("!!!"),
+			},
+			{
+				coStepInitiate,
+				coStepBadPublicKey("!"),
+			},
+		}
+
+		co1Test := []Step{
+			coStepInitiate,
+			coStepValidPk(publicKey0, testMessage),
+			coStepValidSignature(testPk0Signature),
+		}
+
+		for i, test := range co0Tests {
+			t.Run(strconv.Itoa(i), func(t *testing.T) {
+
+				client := &model.Client{}
+				hub := model.NewHub()
+				mockRndMsgGen := fixedMessageGenerator{testMessage}
+				co0 := newComeOnlineDependencyInj(client, hub, mockRndMsgGen)
+
+				// manually run the first test - it has completed at this point.
+				for _, step := range test {
+					co0.Next(step.input)
+				}
+
+				// start another comeOnline
+				co1 := newComeOnlineDependencyInj(client, hub, mockRndMsgGen)
+				testRunner(t, co1, co1Test) // expect it not to fail
+			})
+		}
+	})
+
 	t.Run("Rejects immediately if public key is already set", func(t *testing.T) {
 
-		pk := (model.PublicKey)([]byte("\xcf\xfd\x10\xba\xbe\xd1\x18\x2e\x7d\x8e\x6c\xff\x84\x57\x67\xee\xae\x45\x08\xaa\x13\xcd\x00\x37\x92\x33\xf5\x7f\x79\x9d\xc1\x8c\x1e\xef\xd3\x5b\x51\xdb\x36\xe3\xda\x47\x70\x73\x7a\x3f\x8f\xe7\x5e\xda\x0c\xd3\xc4\x8f\x23\xea\x70\x5f\x32\x34\xb0\x92\x9f\x9e"))
+		pk := publicKey0
 
 		steps := []Step{
 			{
@@ -273,32 +346,13 @@ func TestComeOnline(t *testing.T) {
 				},
 			},
 			{
-				{
-					input: model.RoutineInput{
-						MsgType: model.RoutineMsgType_UsrMsg,
-						Msg:     `{"initiate": "comeOnline"}`,
-					},
-					outputs: []ExpectedOutput{
-						{
-							ro: model.RoutineOutput{
-								Msgs: []string{comeOnlineVersionResponseSchema},
-							},
-						},
-					},
-				},
-				{
-					input: model.RoutineInput{
-						MsgType: model.RoutineMsgType_UsrMsg,
-						Msg:     `{"terminate": "cancel"}`,
-					},
-					outputs: []ExpectedOutput{
-						{
-							ro: model.RoutineOutput{
-								Done: true,
-							},
-						},
-					},
-				},
+				coStepInitiate,
+				coStepClientCancel,
+			},
+			{
+				coStepInitiate,
+				coStepValidPk(publicKey0),
+				coStepClientCancel,
 			},
 		}
 
@@ -315,25 +369,13 @@ func TestComeOnline(t *testing.T) {
 	t.Run("does not send any more messages after a client close", func(t *testing.T) {
 		tests := [][]Step{
 			{
-				{
-					input: model.RoutineInput{
-						MsgType: model.RoutineMsgType_UsrMsg,
-						Msg:     `{"initiate": "comeOnline"}`,
-					},
-					outputs: []ExpectedOutput{
-						{
-							ro: model.RoutineOutput{
-								Msgs: []string{comeOnlineVersionResponseSchema},
-							},
-						},
-					},
-				},
-				{
-					input: model.RoutineInput{
-						MsgType: model.RoutineMsgType_ClientClose,
-					},
-					// expect no output
-				},
+				coStepInitiate,
+				coStepClientClose,
+			},
+			{
+				coStepInitiate,
+				coStepValidPk(publicKey0),
+				coStepClientClose,
 			},
 		}
 
@@ -348,112 +390,244 @@ func TestComeOnline(t *testing.T) {
 	})
 
 	t.Run("Closes after a timeout", func(t *testing.T) {
-		test := []Step{
+		tests := [][]Step{
 			{
-				input: model.RoutineInput{
-					MsgType: model.RoutineMsgType_UsrMsg,
-					Msg:     `{"initiate": "comeOnline"}`,
-				},
-				outputs: []ExpectedOutput{
-					{
-						ro: model.RoutineOutput{
-							Msgs: []string{comeOnlineVersionResponseSchema},
-						},
-					},
-				},
+				coStepInitiate,
+				coStepTimeout,
 			},
 			{
-				input: model.RoutineInput{
-					MsgType: model.RoutineMsgType_Timeout,
+				coStepInitiate,
+				coStepValidPk(publicKey0),
+				coStepTimeout,
+			},
+		}
+
+		for i, tt := range tests {
+			t.Run(strconv.Itoa(i), func(t *testing.T) {
+				mockClient := &model.Client{}
+				mockHub := model.NewHub()
+				co := newComeOnline(mockClient, mockHub)
+				testRunner(t, co, tt)
+			})
+		}
+
+	})
+
+	t.Run("Rejects incorrect/invalid signatures signatures", func(t *testing.T) {
+
+		tests := []struct {
+			description  string
+			publicKey    model.PublicKey
+			msgToSign    string
+			prefaceSteps []Step
+			cases        []Step
+		}{
+			{
+				description: "User sends an invalid signature with a valid public key",
+				publicKey:   publicKey0,
+				msgToSign:   testMessage,
+				prefaceSteps: []Step{
+					coStepInitiate,
+					coStepValidPk(publicKey0, testMessage),
 				},
-				outputs: []ExpectedOutput{
-					{
-						ro: model.RoutineOutput{
-							Done: true,
-							Msgs: []string{errorSchemaString("timeout")},
-						},
-					},
+				cases: []Step{
+					coStepInvalidSignature(`{"signature":"_"}`),
+					coStepInvalidSignature(`{"signature":4}`),
+					coStepInvalidSignature(`{"signature":null}`),
+					coStepInvalidSignature(`{}`),
+					coStepInvalidSignature(`{"signature":"` + testPk0Signature + `", "extraProperty":"hello"}`),
+					coStepInvalidSignature(`}`),
+					coStepInvalidSignature(testPk0Signature /*no json wrapper*/),
+					coStepInvalidSignature(`{"signature":"0000"}`, "Invalid signature"),
+					coStepInvalidSignature(`{"signature":"jIX/9ZHy6UuGZzywconx5rSV77yGugYg2M40ROilWS/zo3qnlau2Zn2p045ZYdKDH98LrMm8vJOmdmWBCkY0Bg=="}`, "Invalid signature" /*One char modified in signature*/),
+					coStepInvalidSignature(`{"signature":"Bzj4qPcKt/bgAfH+JN3CWqyD0X0djWXLh19Bk23yJxrVunVfC/yU9MP6ue/as7edxcY08xdoWjFKu5HYMeiGBQ=="}`, "Invalid signature" /*Signed with a different private key*/),
 				},
 			},
 		}
 
-		mockClient := &model.Client{}
-		mockHub := model.NewHub()
-		co := newComeOnline(mockClient, mockHub)
-		testRunner(t, co, test)
+		for _, test := range tests {
 
+			for _, testCase := range test.cases {
+
+				t.Run(test.description+"-"+testCase.input.Msg, func(t *testing.T) {
+
+					mockClient := &model.Client{}
+					mockHub := model.NewHub()
+					mockRndMsgGen := fixedMessageGenerator{test.msgToSign}
+					co := newComeOnlineDependencyInj(mockClient, mockHub, mockRndMsgGen)
+
+					testRunner(t, co, append(test.prefaceSteps, testCase), testRunnerConfig{errorsOnLastStepOnly: true})
+
+					// check that the key has NOT been updated
+					if mockClient.GetPublicKey() != nil {
+						t.Errorf("Expected public key of client to be nil")
+					}
+
+					// check that the client has NOT been added to the hub
+					_, exists := mockHub.GetClient(test.publicKey)
+					if exists {
+						t.Errorf("Expected client not to be added to the hub")
+					}
+				})
+
+			}
+		}
+
+	})
+
+	t.Run("Random string generator", func(t *testing.T) {
+		t.Run("Return value is not hard-coded", func(t *testing.T) {
+			gen := RandomMessageGeneratorImpl{}
+			str0, _ := gen.GetMessage()
+			str1, _ := gen.GetMessage()
+			str2, _ := gen.GetMessage()
+
+			if str0 == str1 || str1 == str2 || str2 == str0 {
+				t.Errorf(`Return value appears to be hard-coded. From 3 tests got "%s" "%s" "%s"`, str0, str1, str2)
+			}
+		})
 	})
 
 }
 
-func TestParseUserKeyMessage(t *testing.T) {
-	t.Run("accepts correct keys and parses correctly", func(t *testing.T) {
-		tests := []struct {
-			keyStr string
-			key    model.PublicKey
-		}{
-			{
-				`{
-					"publicKey": "cffd10babed1182e7d8e6cff845767eeae4508aa13cd00379233f57f799dc18c1eefd35b51db36e3da4770737a3f8fe75eda0cd3c48f23ea705f3234b0929f9e"
-				}`,
-				(model.PublicKey)([]byte("\xcf\xfd\x10\xba\xbe\xd1\x18\x2e\x7d\x8e\x6c\xff\x84\x57\x67\xee\xae\x45\x08\xaa\x13\xcd\x00\x37\x92\x33\xf5\x7f\x79\x9d\xc1\x8c\x1e\xef\xd3\x5b\x51\xdb\x36\xe3\xda\x47\x70\x73\x7a\x3f\x8f\xe7\x5e\xda\x0c\xd3\xc4\x8f\x23\xea\x70\x5f\x32\x34\xb0\x92\x9f\x9e")),
+var coStepInitiate = Step{
+	description: "User initiates the routine, and server replies with protocol version.",
+	input: model.RoutineInput{
+		MsgType: model.RoutineMsgType_UsrMsg,
+		Msg:     `{"initiate": "comeOnline"}`,
+	},
+	outputs: []ExpectedOutput{
+		{
+			ro: model.RoutineOutput{
+				Msgs: []string{comeOnlineVersionResponseSchema},
 			},
-		}
+		},
+	},
+}
 
-		for _, tt := range tests {
+var coStepValidPk = func(pk model.PublicKey, msgToSign ...string) Step {
+	return Step{
+		description: "User provides a valid public key, and server replies with a message for the user to sign using their private key",
+		input: model.RoutineInput{
+			MsgType: model.RoutineMsgType_UsrMsg,
+			Msg: `{
+				"publicKey": "` + (string)(pk) + `"
+			}`,
+		},
+		outputs: []ExpectedOutput{
+			{
+				ro: model.RoutineOutput{
+					Msgs: []string{comeOnlineSignThisResponseSchema(msgToSign...)},
+				},
+			},
+		},
+	}
+}
 
-			t.Run(tt.keyStr, func(t *testing.T) {
+var coStepValidSignature = func(signature string) Step {
+	return Step{
+		description: "User replies with the correct signature for the message, and server welcomes the user.",
+		input: model.RoutineInput{
+			MsgType: model.RoutineMsgType_UsrMsg,
+			Msg: `{
+				"signature": "` + signature + `"
+			}`,
+		},
+		outputs: []ExpectedOutput{
+			{
+				ro: model.RoutineOutput{
+					Msgs: []string{comeOnlineWelcomeResponseSchema},
+					Done: true,
+				},
+			},
+		},
+	}
+}
 
-				result, err := parseUserKeyMessage(tt.keyStr)
+var coStepClientCancel = Step{
+	description: "Client cancel",
+	input: model.RoutineInput{
+		MsgType: model.RoutineMsgType_UsrMsg,
+		Msg:     `{"terminate": "cancel"}`,
+	},
+	outputs: []ExpectedOutput{
+		{
+			ro: model.RoutineOutput{
+				Done: true,
+			},
+		},
+	},
+}
 
-				if err != nil {
-					t.Errorf(err.Error())
-					return
-				}
+var coStepClientClose = Step{
+	description: "Client close",
+	input: model.RoutineInput{
+		MsgType: model.RoutineMsgType_ClientClose,
+	},
+	// expect no output
+}
 
-				if *result != tt.key {
-					t.Errorf("Expected %v got %v", tt.key, *result)
-				}
-			})
+var coStepTimeout = Step{
+	description: "Client timeout",
+	input: model.RoutineInput{
+		MsgType: model.RoutineMsgType_Timeout,
+	},
+	outputs: []ExpectedOutput{
+		{
+			ro: model.RoutineOutput{
+				Done: true,
+				Msgs: []string{errorSchemaString("timeout")},
+			},
+		},
+	},
+}
 
-		}
-	})
+var coStepInvalidSignature = func(signatureMessage string, errorMessage ...string) Step {
+	return Step{
+		description: "Client sends an invalid signature, server cancels the transaction and replies with an error message.",
+		input: model.RoutineInput{
+			MsgType: model.RoutineMsgType_UsrMsg,
+			Msg:     signatureMessage,
+		},
+		outputs: []ExpectedOutput{
+			{
+				ro: model.RoutineOutput{
+					Done: true,
+					Msgs: []string{errorSchemaString(errorMessage...)},
+				},
+			},
+		},
+	}
+}
 
-	t.Run("rejects public keys in incorrect format", func(t *testing.T) {
+var coStepBadPublicKey = func(publicKeyMessage string, errorMessage ...string) Step {
+	return Step{
+		description: "Client sends a bad public key, server cancels the transaction and replies with an error message.",
+		input: model.RoutineInput{
+			MsgType: model.RoutineMsgType_UsrMsg,
+			Msg:     publicKeyMessage,
+		},
+		outputs: []ExpectedOutput{
+			{
+				ro: model.RoutineOutput{
+					Msgs: []string{errorSchemaString(errorMessage...)},
+					Done: true,
+				},
+			},
+		},
+	}
+}
 
-		tests := []struct {
-			keyStr string
-		}{
-			{`{
-				"publicKey": "illegal_characters______________________________________________________________________________________________________________"
-			}`},
-			{`{
-				"publicKey": "0123456789abcdef"
-			}`},
-			{`{
-				"publicKey": "0123456789abcde"
-			}`},
-			{`{}`},
-			{`{
-				"publicKey": "cffd10babed1182e7d8e6cff845767eeae4508aa13cd00379233f57f799dc18c1eefd35b51db36e3da4770737a3f8fe75eda0cd3c48f23ea705f3234b0929f9e",
-				"extraUnwantedProperty": "boo!"
-			}`},
-			{`{
-				"publicKey": false,
-			}`},
-			{"cffd10babed1182e7d8e6cff845767eeae4508aa13cd00379233f57f799dc18c1eefd35b51db36e3da4770737a3f8fe75eda0cd3c48f23ea705f3234b0929f9e"},
-		}
+const testMessage = "This is a test message used to verify the public key. Usually, it would consist of random characters. It is sent to the user, who hashes and signs it with their private key. The signature is sent back to this server, which verifies the signature against the public key."
 
-		for _, tt := range tests {
-			t.Run(tt.keyStr, func(t *testing.T) {
-				result, err := parseUserKeyMessage(tt.keyStr)
+// testMessage signed with publicKey0
+const testPk0Signature = "jIX/9ZHy6UuGZzywconx5rSV77yGugYg2M40ROilWS/zo3qnlau2Zn2p045ZYvKDH98LrMm8vJOmdmWBCkY0Bg=="
 
-				if err == nil {
-					t.Errorf("Expected an error to be returned. Instead got value %v", *result)
-					return
-				}
+// non-random message generator for mocking.
+type fixedMessageGenerator struct {
+	msg string
+}
 
-			})
-		}
-	})
+func (g fixedMessageGenerator) GetMessage() (string, error) {
+	return g.msg, nil
 }
