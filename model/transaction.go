@@ -38,10 +38,10 @@ type routineInputWrapper struct {
 // instance of a routine
 type transaction struct {
 	// routine output channels - for communication between users
-	pkToROChan             map[PublicKey](chan RoutineOutput) // use transactionLock
-	transactionSocketCount int                                // use transactionLock
-	riChanIsClosed         bool                               // use transactionLock
-	transactionLock        sync.Mutex
+	pkToROChan map[PublicKey](chan RoutineOutput)
+	// also requires pkToROChanLock
+	transactionSocketCount int
+	pkToROChanLock         sync.Mutex
 
 	routine Routine
 

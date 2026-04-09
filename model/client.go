@@ -18,7 +18,7 @@ import (
 const RI_BUFFER_SIZE = 10
 
 // maximum number of concurrent transactions created by this client
-const MAX_TRANSACTIONS = 50
+const MAX_TRANSACTIONS = 1
 
 type PublicKey string
 
@@ -183,27 +183,16 @@ func (c *Client) addTransactionSocket(t *transactionSocket) error {
 			return errors.New("client has disconnected")
 		} else {
 
-			err2 := func() error {
+			func() {
 				// modify the transaction to add roChan
-				defer t.transaction.transactionLock.Unlock()
-				t.transaction.transactionLock.Lock()
-
-				// check that transaction has not terminated
-				if t.transaction.riChanIsClosed {
-					return errors.New("transaction has terminated")
-				}
-
+				defer t.transaction.pkToROChanLock.Unlock()
+				t.transaction.pkToROChanLock.Lock()
 				pk := c.GetPublicKey()
 				if pk != nil {
 					t.transaction.pkToROChan[*pk] = t.roChan
 				}
 				t.transaction.transactionSocketCount += 1
-				return nil
 			}()
-
-			if err2 != nil {
-				return err2
-			}
 
 			c.transactionSockets[t.id] = t
 			return nil
@@ -237,9 +226,8 @@ func (c *Client) deleteTransactionSocket(id [IDLEN]byte) error {
 
 	// remove roChan from the inner transaction
 	func() {
-		defer ts.transaction.transactionLock.Unlock()
-		ts.transaction.transactionLock.Lock()
-
+		defer ts.transaction.pkToROChanLock.Unlock()
+		ts.transaction.pkToROChanLock.Lock()
 		pk := c.publicKey
 		if pk != nil {
 			delete(ts.transaction.pkToROChan, *pk)
@@ -250,7 +238,6 @@ func (c *Client) deleteTransactionSocket(id [IDLEN]byte) error {
 		ts.transaction.transactionSocketCount -= 1
 		if ts.transaction.transactionSocketCount == 0 {
 			close(ts.transaction.riChan)
-			ts.transaction.riChanIsClosed = true
 		}
 	}()
 

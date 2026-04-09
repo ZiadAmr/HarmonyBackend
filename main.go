@@ -68,7 +68,5 @@ func main() {
 		})
 	})
 
-	router.SetTrustedProxies(nil)
-
-	router.Run("0.0.0.0:10080")
+	router.Run("0.0.0.0:8080")
 }
