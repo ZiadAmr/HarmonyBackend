@@ -8,6 +8,7 @@ import (
 )
 
 const ectpExpectedTimeoutDuration = 20 * time.Second
+const maxIceCandidates = 20
 
 func TestEstablishConnectionToPeer(t *testing.T) {
 
@@ -353,6 +354,44 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 							description: "B sends another message candidate after the final once",
 							input:       ectpStepIceBtoA.input,
 							outputs:     outputPkBErrorToBoth,
+						},
+					},
+				},
+				{
+					description: "A sends too many ice candidates",
+					prefaceSteps: append(
+						[]Step{
+							ectpStepInitiateOnline,
+							ectpStepAcceptAndOffer,
+							ectpStepAnswer,
+						},
+						RepeatedSlice(ectpStepIceAToB, maxIceCandidates)..., // send `maxIceCandidates` number of the same message
+					),
+
+					cases: []Step{
+						{
+							description: "A sends one ICE candidate too many",
+							input:       ectpStepIceAToB.input,
+							outputs:     outputCustomErrorToBoth("You have sent too many ICE candidates", "Peer is sending too many ICE candidates"),
+						},
+					},
+				},
+				{
+					description: "B sends too many ice candidates",
+					prefaceSteps: append(
+						[]Step{
+							ectpStepInitiateOnline,
+							ectpStepAcceptAndOffer,
+							ectpStepAnswer,
+						},
+						RepeatedSlice(ectpStepIceBtoA, maxIceCandidates)..., // send `maxIceCandidates` number of the same message
+					),
+
+					cases: []Step{
+						{
+							description: "B sends one ICE candidate too many",
+							input:       ectpStepIceBtoA.input,
+							outputs:     outputCustomErrorToBoth("Peer is sending too many ICE candidates", "You have sent too many ICE candidates"),
 						},
 					},
 				},
@@ -961,6 +1000,25 @@ var outputPkAErrorToBoth = []ExpectedOutput{
 			Done: true,
 		},
 	},
+}
+
+func outputCustomErrorToBoth(toA string, toB string) []ExpectedOutput {
+	return []ExpectedOutput{
+		{
+			ro: model.RoutineOutput{
+				Pk:   &publicKey0,
+				Msgs: []string{errorSchemaString(toA)},
+				Done: true,
+			},
+		},
+		{
+			ro: model.RoutineOutput{
+				Pk:   &publicKey1,
+				Msgs: []string{errorSchemaString(toB)},
+				Done: true,
+			},
+		},
+	}
 }
 
 var outputPkATimeoutToBoth = []ExpectedOutput{

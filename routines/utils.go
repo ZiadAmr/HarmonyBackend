@@ -88,6 +88,17 @@ func parsePublicKey(pkstr string) (*model.PublicKey, error) {
 	return (*model.PublicKey)(&pkstr), nil
 }
 
+// from https://stackoverflow.com/a/77874047
+func RepeatedSlice[T any](elem T, size int) []T {
+	s := make([]T, size)
+
+	for i := range s {
+		s[i] = elem
+	}
+
+	return s
+}
+
 func publicKeyToString(pk model.PublicKey) string {
 	return (string)(pk)
 }

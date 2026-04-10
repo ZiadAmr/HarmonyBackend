@@ -49,6 +49,25 @@ type transaction struct {
 	riChan chan routineInputWrapper
 }
 
+func newTransactionSocket(transaction *transaction, id [IDLEN]byte) *transactionSocket {
+	roChan := make(chan RoutineOutput)
+	return &transactionSocket{
+		clientMsgChan:   make(chan string, 50),
+		clientCloseChan: make(chan struct{}),
+		roChan:          roChan,
+		transaction:     transaction,
+		id:              id,
+	}
+}
+
+func newTransaction(routine Routine) *transaction {
+	return &transaction{
+		pkToROChan: make(map[PublicKey](chan RoutineOutput)),
+		riChan:     make(chan routineInputWrapper, RI_BUFFER_SIZE),
+		routine:    routine,
+	}
+}
+
 func (t *transaction) route(hub *Hub) {
 
 	// within this function and subfunctions is the only place where roChans can be closed.
@@ -59,7 +78,7 @@ func (t *transaction) route(hub *Hub) {
 	closedRoChans := make(map[chan RoutineOutput]struct{})
 
 	// breaks out when the riChan is closed
-	// this occurs when the last client
+	// this occurs when the last client closes transaction socket
 	for riw := range t.riChan {
 
 		// ignore messages from clients with closed routine output channels
@@ -108,7 +127,7 @@ func (t *transaction) distributeRoutineOutputs(hub *Hub, closedRoChans *map[chan
 					continue
 				}
 				// create a new transaction socket if it does not exist
-				tSocket := peerClient.newTransactionSocket(t, newId())
+				tSocket := newTransactionSocket(t, newId())
 				err := peerClient.addTransactionSocket(tSocket)
 				if err == nil {
 					go peerClient.routeTransactionSocket(tSocket)
