@@ -9,7 +9,7 @@ RUN go mod download && go mod verify
 COPY . .
 RUN go build -v -o /usr/local/bin/app .
 
-EXPOSE 8080
+EXPOSE 10080
 
 # disable debug mode
 ENV GIN_MODE=release
