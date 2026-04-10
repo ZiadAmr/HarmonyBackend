@@ -18,7 +18,7 @@ import (
 const RI_BUFFER_SIZE = 10
 
 // maximum number of concurrent transactions created by this client
-const MAX_TRANSACTIONS = 1
+const MAX_TRANSACTIONS = 20
 
 type PublicKey string
 
