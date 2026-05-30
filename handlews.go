@@ -3,6 +3,7 @@ package main
 import (
 	"harmony/backend/model"
 	"harmony/backend/routines"
+	"math/rand"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -12,7 +13,6 @@ import (
 var PING_MESSAGE = []byte("p")
 
 const pingPeriod = 10 * time.Second
-const pingMaxSendDelay = 1 * time.Second
 const pongMaxWait = pingPeriod / 2
 
 func handleWs(c *gin.Context) {
@@ -24,47 +24,60 @@ func handleWs(c *gin.Context) {
 	defer conn.Close()
 
 	// heartbeat
-	receivedPong := make(chan struct{}) // close of this channel causes ping pong loop to exit
-	defer close(receivedPong)
-	conn.SetPongHandler(func(appData string) error {
-		// possibly a panic here if the behaviour of gorilla websocket is to continue calling this handler fn after conn.Close() (which leads to receivedPong chan closing)
-		receivedPong <- struct{}{}
+	// if we haven't received a ping or a ping for 10 seconds then send a ping. If no pong response in 5 seconds then disconnect.
+	receivedPingPong := make(chan struct{})
+	defer close(receivedPingPong)
+
+	conn.SetPingHandler(func(message string) error {
+		receivedPingPong <- struct{}{}
+		_ = conn.WriteControl(websocket.PongMessage, []byte(message), time.Now().Add(time.Second))
 		return nil
 	})
-	// defer conn.SetPongHandler(func(appData string) error { return nil }) // remove handler
+	conn.SetPongHandler(func(appData string) error {
+		receivedPingPong <- struct{}{}
+		return nil
+	})
+
+	const timeBetweenPings = 10 * time.Second
+	const timeToWaitForPong = 5 * time.Second
+	const pingMaxSendDelay = 1 * time.Second
+
 	go func() {
-		pongTimeout := time.NewTimer(time.Hour)
-		ticker := time.NewTicker(pingPeriod)
-		defer ticker.Stop()
+
+		check := time.NewTicker(time.Duration(float32(timeBetweenPings) * /*±10%*/ (0.9 + rand.Float32()*0.2)))
+		close := time.NewTimer( /*arbitrary large number*/ time.Hour)
+		close.Stop()
+
 		for {
 			select {
-			case <-ticker.C:
-				conn.WriteControl(websocket.PingMessage, PING_MESSAGE, time.Now().Add(pingMaxSendDelay))
-				// stop timeout and drain channel
-				if !pongTimeout.Stop() {
-					select {
-					case <-pongTimeout.C:
-					default:
-					}
-				}
-				pongTimeout.Reset(pongMaxWait)
-
-			case <-pongTimeout.C:
-				// pong was not received within the time limit
-				// disconnected
-				conn.Close()
-			case _, ok := <-receivedPong:
+			case _, ok := <-receivedPingPong:
 				if !ok {
 					return
 				}
-				// stop timeout and drain channel
-				if !pongTimeout.Stop() {
+				// reset timers
+				check.Reset(time.Duration(float32(timeBetweenPings) * /*±10%*/ (0.9 + rand.Float32()*0.2)))
+				if !close.Stop() {
 					select {
-					case <-pongTimeout.C:
+					case <-close.C:
 					default:
 					}
 				}
 
+			case <-check.C:
+				// no ping or pong received for 10 seconds
+				conn.WriteControl(websocket.PingMessage, PING_MESSAGE, time.Now().Add(pingMaxSendDelay))
+				// set timer for pong response
+				if !close.Stop() {
+					select {
+					case <-close.C:
+					default:
+					}
+				}
+				close.Reset(timeToWaitForPong)
+
+			case <-close.C:
+				// no pong response - close connection
+				conn.Close()
 			}
 		}
 	}()

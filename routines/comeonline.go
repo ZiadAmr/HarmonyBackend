@@ -124,7 +124,7 @@ func (c *ComeOnline) hello() []model.RoutineOutput {
 	// set next step
 	c.step = comeOnlineStep_recvPublicKey
 	// msgs to return to user
-	return makeCOOutput(false, `{"version":"`+VERSION+`"}`)
+	return makeCOOutput(false, `{"version":"`+SERVER_API_VERSION+`"}`)
 }
 
 func (c *ComeOnline) recvPublicKey(msg string) []model.RoutineOutput {
