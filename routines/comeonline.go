@@ -160,13 +160,13 @@ func (c *ComeOnline) recvPublicKey(msg string) []model.RoutineOutput {
 func (c *ComeOnline) recvSignature(msg string) []model.RoutineOutput {
 
 	// parse signature to byte array
-	sig, err := parseUserSignatureMessage(msg)
+	sig, nonce, err := parseUserSignatureMessage(msg)
 	if err != nil {
 		return makeCOOutput(true, MakeJSONError(err.Error()))
 	}
 
 	// verify signature
-	valid := ed25519.Verify(*c.ed25519PublicKey, []byte(c.signThis), sig)
+	valid := ed25519.Verify(*c.ed25519PublicKey, []byte(c.signThis+nonce), sig)
 	if !valid {
 		return makeCOOutput(true, MakeJSONError("Invalid signature"))
 	}
@@ -260,6 +260,10 @@ var userSignatureMessageSchema = func() *gojsonschema.Schema {
 			"signature": {
 				"type":"string",
 				"pattern": "` + signaturePattern + `"
+			},
+			"nonce": {
+				"type":"string",
+				"maxLength":100
 			}
 		},
 		"required": ["signature"],
@@ -270,34 +274,36 @@ var userSignatureMessageSchema = func() *gojsonschema.Schema {
 	return schema
 }()
 
-func parseUserSignatureMessage(signatureMessageString string) ([]byte, error) {
+// returns (signature, nonce, error)
+func parseUserSignatureMessage(signatureMessageString string) ([]byte, string, error) {
 
 	// validate against json schema
 	messageLoader := gojsonschema.NewStringLoader(signatureMessageString)
 	result, err := userSignatureMessageSchema.Validate(messageLoader)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if !result.Valid() {
-		return nil, errors.New(formatJSONError(result))
+		return nil, "", errors.New(formatJSONError(result))
 	}
 
 	// parse msg
 	usrMsg := struct {
 		Signature string `json:"signature"`
+		Nonce     string `json:"nonce,omitempty"`
 	}{}
 	err = json.Unmarshal([]byte(signatureMessageString), &usrMsg)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	// decode base64 signature
 	sig, err := base64.StdEncoding.DecodeString(usrMsg.Signature)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	return sig, nil
+	return sig, usrMsg.Nonce, nil
 
 }
 

@@ -64,7 +64,7 @@ func isClientCancelMsg(msg string) bool {
 func formatJSONError(result *gojsonschema.Result) string {
 	var errorStrings []string
 	for _, error := range result.Errors() {
-		errorStrings = append(errorStrings, error.Description())
+		errorStrings = append(errorStrings, error.Field()+": "+error.Description())
 	}
 	return strings.Join(errorStrings, ", ")
 }

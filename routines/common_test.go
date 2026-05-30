@@ -253,11 +253,15 @@ func countOccurrences[K comparable](slice []K, el K) int {
 
 func errorSchemaString(msg ...string) string {
 	var errorSchemaFragment string
+	var requiredErrorFragment string
 	if len(msg) > 0 {
 		errorSchemaFragment = `"const":"` + msg[0] + `"`
+		requiredErrorFragment = `, "error"`
 	} else {
 		errorSchemaFragment = `"type":"string"`
+		requiredErrorFragment = ``
 	}
+
 	return `{
 		"$schema": "https://json-schema.org/draft/2020-12/schema",
 		"type": "object",
@@ -269,7 +273,7 @@ func errorSchemaString(msg ...string) string {
 				` + errorSchemaFragment + `
 			}
 		},
-		"required": ["terminate"],
+		"required": ["terminate"` + requiredErrorFragment + `],
 		"additionalProperties": false
 	}`
 }
