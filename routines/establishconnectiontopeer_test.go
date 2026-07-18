@@ -22,7 +22,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 
 			client := &model.Client{}
 			client.SetPublicKey(&publicKey0)
-			hub := model.NewHub()
+			hub := model.NewHub(testAllowedHostnames)
 			ectp := newEstablishConnectionToPeer(client, hub)
 
 			testRunner(t, ectp, test)
@@ -38,7 +38,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 			clientA.SetPublicKey(&publicKey0)
 			clientB := &model.Client{}
 			clientB.SetPublicKey(&publicKey1)
-			hub := model.NewHub()
+			hub := model.NewHub(testAllowedHostnames)
 			hub.AddClient(publicKey0, clientA)
 			hub.AddClient(publicKey1, clientB)
 			ectp := newEstablishConnectionToPeer(clientA, hub)
@@ -76,7 +76,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 					clientA.SetPublicKey(&publicKey0)
 					clientB := &model.Client{}
 					clientB.SetPublicKey(&publicKey1)
-					hub := model.NewHub()
+					hub := model.NewHub(testAllowedHostnames)
 					hub.AddClient(publicKey0, clientA)
 					hub.AddClient(publicKey1, clientB)
 					ectp := newEstablishConnectionToPeer(clientA, hub)
@@ -117,7 +117,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 			}
 
 			client := &model.Client{}
-			hub := model.NewHub()
+			hub := model.NewHub(testAllowedHostnames)
 			ectp := newEstablishConnectionToPeer(client, hub)
 
 			testRunner(t, ectp, test)
@@ -149,7 +149,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 
 			client := &model.Client{}
 			client.SetPublicKey(&publicKey0)
-			hub := model.NewHub()
+			hub := model.NewHub(testAllowedHostnames)
 			hub.AddClient(publicKey0, client)
 			ectp := newEstablishConnectionToPeer(client, hub)
 
@@ -208,7 +208,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 				t.Run(strconv.Itoa(i), func(t *testing.T) {
 					client := &model.Client{}
 					client.SetPublicKey(&publicKey0)
-					hub := model.NewHub()
+					hub := model.NewHub(testAllowedHostnames)
 					ectp := newEstablishConnectionToPeer(client, hub)
 
 					testRunner(t, ectp, test)
@@ -407,7 +407,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 						clientA.SetPublicKey(&publicKey0)
 						clientB := &model.Client{}
 						clientB.SetPublicKey(&publicKey1)
-						hub := model.NewHub()
+						hub := model.NewHub(testAllowedHostnames)
 						hub.AddClient(publicKey0, clientA)
 						hub.AddClient(publicKey1, clientB)
 						ectp := newEstablishConnectionToPeer(clientA, hub)

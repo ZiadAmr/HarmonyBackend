@@ -72,7 +72,7 @@ func TestClient(t *testing.T) {
 			done:    make(chan struct{}),
 		}
 		client := MakeClient(mockConn)
-		mockHub := NewHub()
+		mockHub := NewHub(testAllowedHostnames)
 
 		var routineInstanceCount = 0
 		// use a mock routine that times out instantly, but doesn't explicity complete.

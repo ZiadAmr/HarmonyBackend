@@ -1,25 +1,16 @@
-// useful info
-// https://aditechsavvyblogs.hashnode.dev/mastering-gorilla-websockets
-
 package main
 
 import (
 	"fmt"
-
-	// "time"
+	"strings"
 
 	"harmony/backend/model"
-	"harmony/backend/routines"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-)
 
-// endpoints
-// get test
-func getTest(c *gin.Context) {
-	fmt.Println("Recieved GET /test")
-}
+	"github.com/alexflint/go-arg"
+)
 
 // used to upgrade HTTP protocol to websocket protocol
 var upgrader = websocket.Upgrader{
@@ -28,45 +19,26 @@ var upgrader = websocket.Upgrader{
 }
 
 // pointers to online clients stored in here
-var hub = model.NewHub()
+var hub *model.Hub
 
 func main() {
 
-	// // set up profiling
-	// f, err := os.Create("cpu.prof")
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	// defer f.Close()
+	args := struct {
+		Hostnames string `arg:"-d" default:"0.0.0.0" help:"comma-separated list of hostnames by which this server can be accessed" placeholder:"DOMS"`
+		Port      uint16 `arg:"-p" default:"10080" help:"port to listen on" placeholder:"N"`
+	}{}
+	arg.MustParse(&args)
+	hostnames := strings.Split(args.Hostnames, ",")
+	for i, d := range hostnames {
+		hostnames[i] = strings.TrimSpace(d)
+	}
 
-	// if err := pprof.StartCPUProfile(f); err != nil {
-	// 	log.Fatal(err)
-	// }
-
-	// go func() {
-	// 	time.Sleep(60 * time.Second)
-	// 	pprof.StopCPUProfile()
-	// }()
+	hub = model.NewHub(hostnames)
 
 	router := gin.Default()
 
 	// Main entry point
 	router.GET("/ws", handleWs)
 
-	router.GET("/test", getTest)
-
-	router.GET("/chatDemo", func(ctx *gin.Context) {
-		conn, err := upgrader.Upgrade(ctx.Writer, ctx.Request, nil)
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-
-		client := model.MakeClient(conn)
-		client.Route(hub, func() model.Routine {
-			return routines.NewChatRoutineDemo(&client, hub)
-		})
-	})
-
-	router.Run("0.0.0.0:10080")
+	router.Run("0.0.0.0:" + fmt.Sprintf("%d", args.Port))
 }

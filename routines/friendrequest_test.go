@@ -20,7 +20,7 @@ func TestFriendRequest(t *testing.T) {
 
 			client := &model.Client{}
 			client.SetPublicKey(&publicKey0)
-			hub := model.NewHub()
+			hub := model.NewHub(testAllowedHostnames)
 			hub.AddClient(*client.GetPublicKey(), client)
 			fr := newFriendRequest(client, hub)
 
@@ -44,7 +44,7 @@ func TestFriendRequest(t *testing.T) {
 					clientA.SetPublicKey(&publicKey0)
 					clientB := &model.Client{}
 					clientB.SetPublicKey(&publicKey1)
-					hub := model.NewHub()
+					hub := model.NewHub(testAllowedHostnames)
 					hub.AddClient(*clientA.GetPublicKey(), clientA)
 					hub.AddClient(*clientB.GetPublicKey(), clientB)
 
@@ -81,7 +81,7 @@ func TestFriendRequest(t *testing.T) {
 			}
 
 			client := &model.Client{}
-			hub := model.NewHub()
+			hub := model.NewHub(testAllowedHostnames)
 			fr := newFriendRequest(client, hub)
 
 			testRunner(t, fr, test)
@@ -112,7 +112,7 @@ func TestFriendRequest(t *testing.T) {
 			}
 			client := &model.Client{}
 			client.SetPublicKey(&publicKey0)
-			hub := model.NewHub()
+			hub := model.NewHub(testAllowedHostnames)
 			hub.AddClient(*client.GetPublicKey(), client)
 			fr := newFriendRequest(client, hub)
 
@@ -244,7 +244,7 @@ func TestFriendRequest(t *testing.T) {
 					clientA.SetPublicKey(&publicKey0)
 					clientB := &model.Client{}
 					clientB.SetPublicKey(&publicKey1)
-					hub := model.NewHub()
+					hub := model.NewHub(testAllowedHostnames)
 					hub.AddClient(publicKey0, clientA)
 					hub.AddClient(publicKey1, clientB)
 					fr := newFriendRequest(clientA, hub)

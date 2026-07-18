@@ -11,17 +11,19 @@ type Hub = genericHub[*Client]
 
 // make hub generic for testing purposes
 type genericHub[C interface{}] struct {
-	clients map[PublicKey]C
-	lock    sync.Mutex
+	AllowedHostnames []string
+	clients          map[PublicKey]C
+	lock             sync.Mutex
 }
 
-func NewHub() *Hub {
-	return newGenericHub[*Client]()
+func NewHub(allowedHostnames []string) *Hub {
+	return newGenericHub[*Client](allowedHostnames)
 }
 
-func newGenericHub[C interface{}]() *genericHub[C] {
+func newGenericHub[C interface{}](allowedHostnames []string) *genericHub[C] {
 	return &genericHub[C]{
-		clients: make(map[PublicKey]C),
+		clients:          make(map[PublicKey]C),
+		AllowedHostnames: allowedHostnames,
 	}
 }
 

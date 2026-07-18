@@ -465,17 +465,18 @@ func (r *EstablishConnectionToPeer) iceCandidates(args model.RoutineInput) []mod
 	// reject messages sent by a client who has already sent an empty ICE candidate (indicating that they had finished sending messages)
 	// reject messages if too many ICE candidates sent
 	var toPk *model.PublicKey
-	if *args.Pk == *r.pkA {
+	switch *args.Pk {
+	case *r.pkA:
 		toPk = r.pkB
 		if r.pkAHasSentEmptyICECandidate {
 			return append(ectpError(nil, "Another ICE candidate sent after final ICE candidate"), ectpError(toPk, "Peer sent a malformed message")...)
 		}
-	} else if *args.Pk == *r.pkB {
+	case *r.pkB:
 		toPk = r.pkA
 		if r.pkBHasSentEmptyICECandidate {
 			return append(ectpError(nil, "Another ICE candidate sent after final ICE candidate"), ectpError(toPk, "Peer sent a malformed message")...)
 		}
-	} else {
+	default:
 		panic("received ice candidate from unknown client")
 	}
 

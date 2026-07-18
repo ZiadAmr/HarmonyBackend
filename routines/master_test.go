@@ -44,7 +44,7 @@ func TestMasterRoutine(t *testing.T) {
 				}
 
 				mockClient := &model.Client{}
-				mockHub := model.NewHub()
+				mockHub := model.NewHub(testAllowedHostnames)
 
 				master := newMasterRoutineDependencyInj(routineImpls, mockClient, mockHub)
 
@@ -112,7 +112,7 @@ func TestMasterRoutine(t *testing.T) {
 				}
 
 				mockClient := &model.Client{}
-				mockHub := model.NewHub()
+				mockHub := model.NewHub(testAllowedHostnames)
 
 				master := newMasterRoutineDependencyInj(routineImpls, mockClient, mockHub)
 				master.Next(model.RoutineInput{
@@ -154,7 +154,7 @@ func TestMasterRoutine(t *testing.T) {
 		}
 
 		mockClient := &model.Client{}
-		mockHub := model.NewHub()
+		mockHub := model.NewHub(testAllowedHostnames)
 
 		master := newMasterRoutineDependencyInj(mockConstructorImpls, mockClient, mockHub)
 

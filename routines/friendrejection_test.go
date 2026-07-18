@@ -18,7 +18,7 @@ func TestFriendRejection(t *testing.T) {
 			clientA.SetPublicKey(&publicKey0)
 			clientB := &model.Client{}
 			clientB.SetPublicKey(&publicKey1)
-			hub := model.NewHub()
+			hub := model.NewHub(testAllowedHostnames)
 			hub.AddClient(*clientA.GetPublicKey(), clientA)
 			hub.AddClient(*clientB.GetPublicKey(), clientB)
 			fr := newFriendRejection(clientA, hub)
@@ -35,7 +35,7 @@ func TestFriendRejection(t *testing.T) {
 
 			clientA := &model.Client{}
 			clientA.SetPublicKey(&publicKey0)
-			hub := model.NewHub()
+			hub := model.NewHub(testAllowedHostnames)
 			hub.AddClient(*clientA.GetPublicKey(), clientA)
 			fr := newFriendRejection(clientA, hub)
 
@@ -69,7 +69,7 @@ func TestFriendRejection(t *testing.T) {
 			clientA := &model.Client{}
 			clientB := &model.Client{}
 			clientB.SetPublicKey(&publicKey1)
-			hub := model.NewHub()
+			hub := model.NewHub(testAllowedHostnames)
 			hub.AddClient(*clientB.GetPublicKey(), clientB)
 
 			fr := newFriendRejection(clientA, hub)
@@ -103,7 +103,7 @@ func TestFriendRejection(t *testing.T) {
 
 			clientA := &model.Client{}
 			clientA.SetPublicKey(&publicKey0)
-			hub := model.NewHub()
+			hub := model.NewHub(testAllowedHostnames)
 			hub.AddClient(*clientA.GetPublicKey(), clientA)
 
 			fr := newFriendRejection(clientA, hub)
@@ -159,7 +159,7 @@ func TestFriendRejection(t *testing.T) {
 				clientA.SetPublicKey(&publicKey0)
 				clientB := &model.Client{}
 				clientB.SetPublicKey(&publicKey1)
-				hub := model.NewHub()
+				hub := model.NewHub(testAllowedHostnames)
 				hub.AddClient(*clientA.GetPublicKey(), clientA)
 				hub.AddClient(*clientB.GetPublicKey(), clientB)
 

@@ -1,8 +1,10 @@
 package routines
 
 import (
+	"encoding/json"
 	"harmony/backend/model"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -17,7 +19,7 @@ const comeOnlineVersionResponseSchema = `{
 }`
 
 // `message` should be escaped for json.
-var comeOnlineSignThisResponseSchema = func(message ...string) string {
+var comeOnlineChallengeResponseSchema = func(message ...string) string {
 	var frag string
 	if len(message) > 0 {
 		frag = `{"const": "` + message[0] + `"}`
@@ -28,9 +30,9 @@ var comeOnlineSignThisResponseSchema = func(message ...string) string {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
-    "signThis": ` + frag + `
+    "challenge": ` + frag + `
   },
-  "required": ["signThis"],
+  "required": ["challenge"],
   "additionalProperties": false
 }`
 }
@@ -52,26 +54,43 @@ func TestComeOnline(t *testing.T) {
 
 		// define tests
 		tests := []struct {
-			key       model.PublicKey
-			msgToSign string
-			steps     []Step
+			key              model.PublicKey
+			challenge        string
+			currentTime      string
+			allowedHostnames []string
+			steps            []Step
 		}{
 			{
-				key:       publicKey0,
-				msgToSign: testMessage,
+				key:              publicKey0,
+				challenge:        testMessage,
+				currentTime:      testTime,
+				allowedHostnames: []string{"harmonytestserver.org"},
 				steps: []Step{
 					coStepInitiate,
 					coStepValidPk(publicKey0, testMessage),
-					coStepValidSignature(testPk0Signature),
+					coStepValidSignature(createSignatureMessage(testMessage, "harmonytestserver.org", "2023-09-24T15:30:00Z", "dQNw2g5cNppO5a20139Z/xjiT3NPY3AQWWQhP6j+zMdMNLxiWNCuISJhiPo9A01U++dQz5HDLuL8twxiUQRrBw==")),
 				},
 			},
 			{
-				key:       publicKey0,
-				msgToSign: testMessage,
+				key:              publicKey0,
+				challenge:        testMessage,
+				currentTime:      testTime,
+				allowedHostnames: []string{"0.0.0.0"}, // allow any hostname
 				steps: []Step{
 					coStepInitiate,
 					coStepValidPk(publicKey0, testMessage),
-					coStepValidSignature(testPk0NonceSignature, testNonce),
+					coStepValidSignature(createSignatureMessage(testMessage, "anywhere.com", "2023-09-24T15:30:00Z", "b9iX1k8wRj/Lk50KyApsM2Egmx4qxiAktvRN+hLYjnx/hdp4ztSlDib9Q/yPBwtvPGpkdyVljHPsdvqzKuc0AA==")),
+				},
+			},
+			{
+				key:              publicKey0,
+				challenge:        testMessage,
+				currentTime:      testTime,
+				allowedHostnames: []string{"harmonytestserver.org"},
+				steps: []Step{
+					coStepInitiate,
+					coStepValidPk(publicKey0, testMessage),
+					coStepValidSignature(createSignatureMessage(testMessage, "harmonytestserver.org", "2023-09-24T15:30:01Z", "yOxXxrbGwJ3ahUbHRvvegxddmkKxiDpSnNu31oriLYvNuwhGpCeKhgQ/uE98pambs4QenGqIhrgUGyFrliagDg==")),
 				},
 			},
 		}
@@ -82,10 +101,11 @@ func TestComeOnline(t *testing.T) {
 
 				// mocks
 				mockClient := &model.Client{}
-				mockHub := model.NewHub()
-				mockRndMsgGen := fixedMessageGenerator{tt.msgToSign}
+				mockHub := model.NewHub(tt.allowedHostnames)
+				mockRndMsgGen := fixedMessageGenerator{tt.challenge}
+				mockCurrentTimeGen := fixedTimeGen{tt.currentTime}
 
-				co := newComeOnlineDependencyInj(mockClient, mockHub, mockRndMsgGen)
+				co := newComeOnlineDependencyInj(mockClient, mockHub, mockRndMsgGen, mockCurrentTimeGen)
 
 				testRunner(t, co, tt.steps)
 
@@ -140,7 +160,7 @@ func TestComeOnline(t *testing.T) {
 				t.Run(test.description+"-"+testCase.input.Msg, func(t *testing.T) {
 
 					mockClient := &model.Client{}
-					mockHub := model.NewHub()
+					mockHub := model.NewHub(testAllowedHostnames)
 					co := newComeOnline(mockClient, mockHub)
 
 					testRunner(t, co, append(test.prefaceSteps, testCase), testRunnerConfig{errorsOnLastStepOnly: true})
@@ -185,8 +205,7 @@ func TestComeOnline(t *testing.T) {
 		}
 
 		// mock hub with the client already signed in
-
-		hub := model.NewHub()
+		hub := model.NewHub(testAllowedHostnames)
 
 		client0 := &model.Client{}
 		key := publicKey0
@@ -249,9 +268,10 @@ func TestComeOnline(t *testing.T) {
 			t.Run(strconv.Itoa(i), func(t *testing.T) {
 
 				client := &model.Client{}
-				hub := model.NewHub()
+				hub := model.NewHub(testAllowedHostnames)
 				mockRndMsgGen := fixedMessageGenerator{testMessage}
-				co0 := newComeOnlineDependencyInj(client, hub, mockRndMsgGen)
+				mockCurrentTimeGen := fixedTimeGen{testTime}
+				co0 := newComeOnlineDependencyInj(client, hub, mockRndMsgGen, mockCurrentTimeGen)
 
 				// manually run the first test - after this point it is not complete
 				for _, step := range test {
@@ -259,7 +279,7 @@ func TestComeOnline(t *testing.T) {
 				}
 
 				// start another comeOnline
-				co1 := newComeOnlineDependencyInj(client, hub, mockRndMsgGen)
+				co1 := newComeOnlineDependencyInj(client, hub, mockRndMsgGen, mockCurrentTimeGen)
 				testRunner(t, co1, co1Test) // expect it to fail
 			})
 		}
@@ -281,16 +301,18 @@ func TestComeOnline(t *testing.T) {
 		co1Test := []Step{
 			coStepInitiate,
 			coStepValidPk(publicKey0, testMessage),
-			coStepValidSignature(testPk0Signature),
+			coStepValidSignature(createSignatureMessage(testMessage, testAllowedHostnames[0], testTime, "dQNw2g5cNppO5a20139Z/xjiT3NPY3AQWWQhP6j+zMdMNLxiWNCuISJhiPo9A01U++dQz5HDLuL8twxiUQRrBw==")),
 		}
 
 		for i, test := range co0Tests {
 			t.Run(strconv.Itoa(i), func(t *testing.T) {
 
 				client := &model.Client{}
-				hub := model.NewHub()
+				hub := model.NewHub(testAllowedHostnames)
 				mockRndMsgGen := fixedMessageGenerator{testMessage}
-				co0 := newComeOnlineDependencyInj(client, hub, mockRndMsgGen)
+				mockCurrentTimeGen := fixedTimeGen{testTime}
+
+				co0 := newComeOnlineDependencyInj(client, hub, mockRndMsgGen, mockCurrentTimeGen)
 
 				// manually run the first test - it has completed at this point.
 				for _, step := range test {
@@ -298,7 +320,7 @@ func TestComeOnline(t *testing.T) {
 				}
 
 				// start another comeOnline
-				co1 := newComeOnlineDependencyInj(client, hub, mockRndMsgGen)
+				co1 := newComeOnlineDependencyInj(client, hub, mockRndMsgGen, mockCurrentTimeGen)
 				testRunner(t, co1, co1Test) // expect it not to fail
 			})
 		}
@@ -328,7 +350,7 @@ func TestComeOnline(t *testing.T) {
 		mockClient := &model.Client{}
 		mockClient.SetPublicKey(&pk)
 
-		mockHub := model.NewHub()
+		mockHub := model.NewHub(testAllowedHostnames)
 
 		co := newComeOnline(mockClient, mockHub)
 
@@ -368,7 +390,7 @@ func TestComeOnline(t *testing.T) {
 		for i, tt := range tests {
 			t.Run(strconv.Itoa(i), func(t *testing.T) {
 				mockClient := &model.Client{}
-				mockHub := model.NewHub()
+				mockHub := model.NewHub(testAllowedHostnames)
 				co := newComeOnline(mockClient, mockHub)
 				testRunner(t, co, tt)
 			})
@@ -391,7 +413,7 @@ func TestComeOnline(t *testing.T) {
 		for i, tt := range tests {
 			t.Run(strconv.Itoa(i), func(t *testing.T) {
 				mockClient := &model.Client{}
-				mockHub := model.NewHub()
+				mockHub := model.NewHub(testAllowedHostnames)
 				co := newComeOnline(mockClient, mockHub)
 				testRunner(t, co, tt)
 			})
@@ -414,7 +436,7 @@ func TestComeOnline(t *testing.T) {
 		for i, tt := range tests {
 			t.Run(strconv.Itoa(i), func(t *testing.T) {
 				mockClient := &model.Client{}
-				mockHub := model.NewHub()
+				mockHub := model.NewHub(testAllowedHostnames)
 				co := newComeOnline(mockClient, mockHub)
 				testRunner(t, co, tt)
 			})
@@ -422,7 +444,7 @@ func TestComeOnline(t *testing.T) {
 
 	})
 
-	t.Run("Rejects incorrect/invalid signatures signatures", func(t *testing.T) {
+	t.Run("Rejects incorrect/invalid signatures", func(t *testing.T) {
 
 		tests := []struct {
 			description  string
@@ -440,18 +462,25 @@ func TestComeOnline(t *testing.T) {
 					coStepValidPk(publicKey0, testMessage),
 				},
 				cases: []Step{
-					coStepInvalidSignature(`{"signature":"_"}`),
-					coStepInvalidSignature(`{"signature":4}`),
-					coStepInvalidSignature(`{"signature":null}`),
+					// coStepInvalidSignature(`{"signature":"_"}`),
+					// coStepInvalidSignature(`{"signature":4}`),
+					// coStepInvalidSignature(`{"signature":null}`),
+					// coStepInvalidSignature(`{"signature":"` + testPk0Signature + `", "extraProperty":"hello"}`),
+					// coStepInvalidSignature(testPk0Signature /*no json wrapper*/),
+					// coStepInvalidSignature(`{"signature":"0000"}`, "Invalid signature"),
+					// coStepInvalidSignature(`{"signature":"jIX/9ZHy6UuGZzywconx5rSV77yGugYg2M40ROilWS/zo3qnlau2Zn2p045ZYdKDH98LrMm8vJOmdmWBCkY0Bg=="}`, "Invalid signature" /*One char modified in signature*/),
+					// coStepInvalidSignature(`{"signature":"Bzj4qPcKt/bgAfH+JN3CWqyD0X0djWXLh19Bk23yJxrVunVfC/yU9MP6ue/as7edxcY08xdoWjFKu5HYMeiGBQ=="}`, "Invalid signature" /*Signed with a different private key*/),
+					// coStepInvalidSignature(`{"signature":"TGc2zWcAepDkjtNCXwE55vDp2kXmfkKwvGuWpcO8LymeVkqaKrjXwGMLPjtTt+OA5bQrOrU7nOqf77o5jlVWBw==", "nonce": "This nonce is too long - it is greater than 100 characters. The server should reject it for that reason."}`),
 					coStepInvalidSignature(`{}`),
-					coStepInvalidSignature(`{"signature":"` + testPk0Signature + `", "extraProperty":"hello"}`),
 					coStepInvalidSignature(`}`),
-					coStepInvalidSignature(testPk0Signature /*no json wrapper*/),
-					coStepInvalidSignature(`{"signature":"0000"}`, "Invalid signature"),
-					coStepInvalidSignature(`{"signature":"jIX/9ZHy6UuGZzywconx5rSV77yGugYg2M40ROilWS/zo3qnlau2Zn2p045ZYdKDH98LrMm8vJOmdmWBCkY0Bg=="}`, "Invalid signature" /*One char modified in signature*/),
-					coStepInvalidSignature(`{"signature":"Bzj4qPcKt/bgAfH+JN3CWqyD0X0djWXLh19Bk23yJxrVunVfC/yU9MP6ue/as7edxcY08xdoWjFKu5HYMeiGBQ=="}`, "Invalid signature" /*Signed with a different private key*/),
-					coStepInvalidSignature(`{"signature":"TGc2zWcAepDkjtNCXwE55vDp2kXmfkKwvGuWpcO8LymeVkqaKrjXwGMLPjtTt+OA5bQrOrU7nOqf77o5jlVWBw==", "nonce": "This nonce is too long - it is greater than 100 characters. The server should reject it for that reason."}`),
-					coStepInvalidSignature(`{"signature":"0NK9zFHF7UeyQpWPMC9BsrD+wJiEEN1NbywNdHS1URx+FrQT5yCri66CSIh41umXTxEYiXS+LujfbJJW+wRbDQ==", "nonce": "` + testNonce + `"}` /*One char modified in signature*/),
+					coStepInvalidSignature(`{"signature":"0NK9zFHF7UeyQpWPMC9BsrD+wJiEEN1NbywNdHS1URx+FrQT5yCri66CSIh41umXTxEYiXS+LujfbJJW+wRbDQ=="` /*No payload*/),
+					coStepInvalidSignature(`{"payload": {}, "signature":"0NK9zFHF7UeyQpWPMC9BsrD+wJiEEN1NbywNdHS1URx+FrQT5yCri66CSIh41umXTxEYiXS+LujfbJJW+wRbDQ=="` /*Missing fields in payload*/),
+					coStepInvalidSignature(createSignatureMessage(testMessage, testAllowedHostnames[0], testTime, "0NK9zFHF7UeyQpWPMC9BsrD+wJiEEN1NbywNdHS1URx+FrQT5yCri66CSIh41umXTxEYiXS+LujfbJJW+wRbDQ==") /*Signature invalid*/),
+					coStepInvalidSignature(createSignatureMessage("OOPS", testAllowedHostnames[0], testTime, "N8XFYNhpgSd2T4NCdNpy1lP9akdjfx4XdlHRLpx8ewP8SmXCWdgwpRo882y+j3BRFfdy7pAK2mgjmPNt+fDeBQ==") /*incorrect challenge signed*/),
+					coStepInvalidSignature(createSignatureMessage(testMessage, "google.com", testTime, "4Od8mhJXkrbFpa2y8gd942ZQjoRwtUtDSB2XkZ3+tufsoD0/iqjp4xvhdN2O1X/rZ1swilLOkQHT5KQmhrXLAQ==") /*Wrong hostname*/),
+					coStepInvalidSignature(createSignatureMessage(testMessage, testAllowedHostnames[0], "5 o'clock", "g/sC1A6Y3qbmhPb96riBbgevNSZ667uq7MJpvocSqkVT63w2HLQEPFm12OUx7l5FSyZxxx0oUJtzp3pG+vLmAg==") /*Time not in rfc3339 format*/),
+					coStepInvalidSignature(createSignatureMessage(testMessage, testAllowedHostnames[0], "2023-09-24T15:30:03Z", "ehahcbrkWdQvGt27/cHYmn023rCMNifzwD4IKRExjj71OF6uh02hS12eQcCgRRJU5sdw1gQE7nuTESsonfQACA==") /*Time out by more than 2 seconds*/),
+					coStepInvalidSignature(strings.ReplaceAll(createSignatureMessage(testMessage, testAllowedHostnames[0], testTime, "hPCPlryKpf39jecSRsSjOZj9BIBkVIDqfha92JOTmtoKIn3uERvaUD/lYwQg6NjKJWcZLl1gUG0SDd3uyvvdCQ=="), "comeOnline", "hacking") /*Incorrect purpose: changed from "comeOnline" to "hacking"*/),
 				},
 			},
 		}
@@ -463,9 +492,10 @@ func TestComeOnline(t *testing.T) {
 				t.Run(test.description+"-"+testCase.input.Msg, func(t *testing.T) {
 
 					mockClient := &model.Client{}
-					mockHub := model.NewHub()
+					mockHub := model.NewHub(testAllowedHostnames)
 					mockRndMsgGen := fixedMessageGenerator{test.msgToSign}
-					co := newComeOnlineDependencyInj(mockClient, mockHub, mockRndMsgGen)
+					mockCurrentTimeGen := fixedTimeGen{testTime}
+					co := newComeOnlineDependencyInj(mockClient, mockHub, mockRndMsgGen, mockCurrentTimeGen)
 
 					testRunner(t, co, append(test.prefaceSteps, testCase), testRunnerConfig{errorsOnLastStepOnly: true})
 
@@ -528,28 +558,40 @@ var coStepValidPk = func(pk model.PublicKey, msgToSign ...string) Step {
 		outputs: []ExpectedOutput{
 			{
 				ro: model.RoutineOutput{
-					Msgs: []string{comeOnlineSignThisResponseSchema(msgToSign...)},
+					Msgs: []string{comeOnlineChallengeResponseSchema(msgToSign...)},
 				},
 			},
 		},
 	}
 }
 
-// `signature` and `message` should be escaped for json.
-var coStepValidSignature = func(signature string, nonce ...string) Step {
-	var nonceStr = ""
-	if len(nonce) > 0 {
-		nonceStr = `,
-		"nonce": "` + nonce[0] + `"`
-	}
+var createSignatureMessage = func(challenge string, hostname string, currentTime string, signature string) string {
+	input := struct {
+		Payload struct {
+			Challenge   string `json:"challenge"`
+			Hostname    string `json:"hostname"`
+			Purpose     string `json:"purpose"`
+			CurrentTime string `json:"currentTime"`
+		} `json:"payload"`
+		Signature string `json:"signature"`
+	}{}
+	input.Payload.Challenge = challenge
+	input.Payload.Hostname = hostname
+	input.Payload.Purpose = "comeOnline"
+	input.Payload.CurrentTime = currentTime
+	input.Signature = signature
+
+	inputMarshal, _ := json.Marshal(input)
+	return string(inputMarshal)
+}
+
+var coStepValidSignature = func(signatureMessage string) Step {
+
 	return Step{
 		description: "User replies with the correct signature for the message, and server welcomes the user.",
 		input: model.RoutineInput{
 			MsgType: model.RoutineMsgType_UsrMsg,
-			Msg: `{
-				"signature": "` + signature + `"` +
-				nonceStr + `
-			}`,
+			Msg:     signatureMessage,
 		},
 		outputs: []ExpectedOutput{
 			{
@@ -602,7 +644,7 @@ var coStepTimeout = Step{
 
 var coStepInvalidSignature = func(signatureMessage string, errorMessage ...string) Step {
 	return Step{
-		description: "Client sends an invalid signature, server cancels the transaction and replies with an error message.",
+		description: "Client sends an invalid payload/signature message, server cancels the transaction and replies with an error message.",
 		input: model.RoutineInput{
 			MsgType: model.RoutineMsgType_UsrMsg,
 			Msg:     signatureMessage,
@@ -639,6 +681,10 @@ var coStepBadPublicKey = func(publicKeyMessage string, errorMessage ...string) S
 const testMessage = "This is a test message used to verify the public key. Usually, it would consist of random characters. It is sent to the user, who hashes and signs it with their private key. The signature is sent back to this server, which verifies the signature against the public key."
 const testNonce = "This is a test nonce. It is at most 100 characters generated by the client and appended to the msg."
 
+var testAllowedHostnames = []string{"harmonytestserver.org"}
+
+const testTime = "2023-09-24T15:30:00Z"
+
 // testMessage signed with publicKey0
 const testPk0Signature = "jIX/9ZHy6UuGZzywconx5rSV77yGugYg2M40ROilWS/zo3qnlau2Zn2p045ZYvKDH98LrMm8vJOmdmWBCkY0Bg=="
 
@@ -652,4 +698,21 @@ type fixedMessageGenerator struct {
 
 func (g fixedMessageGenerator) GetMessage() (string, error) {
 	return g.msg, nil
+}
+
+// non-random current time for mocking
+type fixedTimeGen struct {
+	time string
+}
+
+func (g fixedTimeGen) GetCurrentTime() string {
+	return g.time
+}
+
+type allowedHostnamesGen struct {
+	AllowedHostnames []string
+}
+
+func (g allowedHostnamesGen) GetAllowedHostnames() []string {
+	return g.AllowedHostnames
 }

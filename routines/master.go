@@ -10,7 +10,7 @@ import (
 	"github.com/xeipuuv/gojsonschema"
 )
 
-const SERVER_API_VERSION = "1.1"
+const SERVER_API_VERSION = "2.0"
 
 type MasterRoutine struct {
 	isSubRoutineSet bool

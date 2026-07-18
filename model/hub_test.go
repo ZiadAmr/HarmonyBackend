@@ -34,7 +34,7 @@ func TestHub(t *testing.T) {
 			t.Run(strconv.Itoa(i), func(t *testing.T) {
 
 				// mocks
-				hub := newGenericHub[*ClientMockForHub]()
+				hub := newGenericHub[*ClientMockForHub](testAllowedHostnames)
 				client := &ClientMockForHub{publicKey: &tt.publicKey}
 
 				// add client to hub and attempt to get them back
@@ -67,7 +67,7 @@ func TestHub(t *testing.T) {
 		for i, tt := range tests {
 			t.Run(strconv.Itoa(i), func(t *testing.T) {
 
-				hub := newGenericHub[*ClientMockForHub]()
+				hub := newGenericHub[*ClientMockForHub](testAllowedHostnames)
 
 				// add first client directly
 				client0 := &ClientMockForHub{publicKey: &tt.publicKey}
@@ -107,7 +107,7 @@ func TestHub(t *testing.T) {
 
 		for i, tt := range tests {
 			t.Run(strconv.Itoa(i), func(t *testing.T) {
-				hub := newGenericHub[*ClientMockForHub]()
+				hub := newGenericHub[*ClientMockForHub](testAllowedHostnames)
 				client := &ClientMockForHub{publicKey: &tt.publicKey}
 
 				// add client directly
@@ -132,7 +132,7 @@ func TestHub(t *testing.T) {
 
 		for i, tt := range tests {
 			t.Run(strconv.Itoa(i), func(t *testing.T) {
-				hub := NewHub()
+				hub := NewHub(testAllowedHostnames)
 
 				err := hub.DeleteClient(tt.publicKey)
 
@@ -144,3 +144,5 @@ func TestHub(t *testing.T) {
 		}
 	})
 }
+
+var testAllowedHostnames = []string{"harmonytestserver.org"}

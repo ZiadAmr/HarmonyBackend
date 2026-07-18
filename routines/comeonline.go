@@ -8,20 +8,23 @@ import (
 	"encoding/json"
 	"errors"
 	"harmony/backend/model"
+	"slices"
 	"time"
 
+	"github.com/gibson042/canonicaljson-go"
 	"github.com/xeipuuv/gojsonschema"
 )
 
 const timeout = 30 * time.Second
 
 type ComeOnline struct {
-	client     *model.Client
-	hub        *model.Hub
-	step       comeOnlineStep
-	randMsgGen RandomMessageGenerator
+	client         *model.Client
+	hub            *model.Hub
+	step           comeOnlineStep
+	randMsgGen     RandomMessageGenerator
+	currentTimeGen CurrentTimeGenerator
 
-	signThis         string
+	challenge        string
 	publicKey        *model.PublicKey
 	ed25519PublicKey *ed25519.PublicKey
 
@@ -30,6 +33,10 @@ type ComeOnline struct {
 
 type RandomMessageGenerator interface {
 	GetMessage() (string, error)
+}
+
+type CurrentTimeGenerator interface {
+	GetCurrentTime() string
 }
 
 type RandomMessageGeneratorImpl struct{}
@@ -46,6 +53,12 @@ func (r RandomMessageGeneratorImpl) GetMessage() (string, error) {
 	return randStr, nil
 }
 
+type CurrentTimeGeneratorImpl struct{}
+
+func (c CurrentTimeGeneratorImpl) GetCurrentTime() string {
+	return time.Now().Format(time.RFC3339)
+}
+
 type comeOnlineStep int
 
 const ( // enum
@@ -56,15 +69,16 @@ const ( // enum
 
 // constructor
 func newComeOnline(client *model.Client, hub *model.Hub) model.Routine {
-	return newComeOnlineDependencyInj(client, hub, RandomMessageGeneratorImpl{})
+	return newComeOnlineDependencyInj(client, hub, RandomMessageGeneratorImpl{}, CurrentTimeGeneratorImpl{})
 }
 
-func newComeOnlineDependencyInj(client *model.Client, hub *model.Hub, randMsgGen RandomMessageGenerator) model.Routine {
+func newComeOnlineDependencyInj(client *model.Client, hub *model.Hub, randMsgGen RandomMessageGenerator, currentTimeGen CurrentTimeGenerator) model.Routine {
 	return &ComeOnline{
-		client:     client,
-		hub:        hub,
-		randMsgGen: randMsgGen,
-		step:       comeOnlineStep_hello,
+		client:         client,
+		hub:            hub,
+		randMsgGen:     randMsgGen,
+		currentTimeGen: currentTimeGen,
+		step:           comeOnlineStep_hello,
 	}
 }
 
@@ -84,6 +98,7 @@ func (c *ComeOnline) Next(args model.RoutineInput) []model.RoutineOutput {
 	// check if lock needs to be released
 	if args.MsgType == model.RoutineMsgType_ClientClose || (len(nextResult) > 0 && nextResult[0].Done) {
 		c.client.ComeOnlineLock.Unlock()
+		c.holdsComeOnlineLock = false
 	}
 
 	return nextResult
@@ -141,32 +156,63 @@ func (c *ComeOnline) recvPublicKey(msg string) []model.RoutineOutput {
 	c.ed25519PublicKey = keyBytes
 
 	// generate a random message for the client to sign with their private key
-	c.signThis, err = c.randMsgGen.GetMessage()
+	c.challenge, err = c.randMsgGen.GetMessage()
 	if err != nil {
 		makeCOOutput(true, MakeJSONError(err.Error()))
 	}
-	signThisMsgData := struct {
-		SignThis string `json:"signThis"`
+	challengeMsgData := struct {
+		Challenge string `json:"challenge"`
 	}{}
-	signThisMsgData.SignThis = c.signThis
-	signThisMsgStr, _ := json.Marshal(signThisMsgData)
+	challengeMsgData.Challenge = c.challenge
+	challengeMsgStr, _ := json.Marshal(challengeMsgData)
 
 	// set next step
 	c.step = comeOnlineStep_recvSignature
 
-	return makeCOOutput(false, (string)(signThisMsgStr))
+	return makeCOOutput(false, (string)(challengeMsgStr))
 }
 
 func (c *ComeOnline) recvSignature(msg string) []model.RoutineOutput {
 
 	// parse signature to byte array
-	sig, nonce, err := parseUserSignatureMessage(msg)
+	msgObj, err := parseUserSignatureMessage(msg)
+	if err != nil {
+		return makeCOOutput(true, MakeJSONError(err.Error()))
+	}
+
+	// check challenge matches
+	if msgObj.Payload.Challenge != c.challenge {
+		return makeCOOutput(true, MakeJSONError("Challenge does not match"))
+	}
+
+	// check hostname is allowed
+	if !(slices.Contains(c.hub.AllowedHostnames, msgObj.Payload.Hostname) || slices.Contains(c.hub.AllowedHostnames, "0.0.0.0")) {
+		return makeCOOutput(true, MakeJSONError("Hostname not allowed"))
+	}
+
+	// check client time is no more than 2 seconds different from server time
+	serverTimeRFC3339 := c.currentTimeGen.GetCurrentTime()
+	serverTime, _ := time.Parse(time.RFC3339, serverTimeRFC3339)
+	clientTime, err := time.Parse(time.RFC3339, msgObj.Payload.CurrentTime)
+	if err != nil {
+		return makeCOOutput(true, MakeJSONError(err.Error()))
+	}
+	if serverTime.Sub(clientTime).Abs() > 2*time.Second {
+		return makeCOOutput(true, MakeJSONError("Server and client times are not synchronized. Current server time is "+serverTimeRFC3339))
+	}
+
+	// decode base64 signature
+	sig, err := base64.StdEncoding.DecodeString(msgObj.Signature)
 	if err != nil {
 		return makeCOOutput(true, MakeJSONError(err.Error()))
 	}
 
 	// verify signature
-	valid := ed25519.Verify(*c.ed25519PublicKey, []byte(c.signThis+nonce), sig)
+	serializedPayload, err := canonicaljson.Marshal(msgObj.Payload)
+	if err != nil {
+		return makeCOOutput(true, MakeJSONError(err.Error()))
+	}
+	valid := ed25519.Verify(*c.ed25519PublicKey, serializedPayload, sig)
 	if !valid {
 		return makeCOOutput(true, MakeJSONError("Invalid signature"))
 	}
@@ -257,16 +303,32 @@ var userSignatureMessageSchema = func() *gojsonschema.Schema {
 		"$schema": "https://json-schema.org/draft/2020-12/schema",
 		"type": "object",
 		"properties": {
+			"payload": {
+				"type":"object",
+				"properties": {
+					"challenge": {
+						"type": "string"
+					},
+					"hostname": {
+						"type": "string" 
+					},
+					"purpose": {
+						"const": "comeOnline" 
+					},
+					"currentTime": {
+						"type": "string",
+						"pattern": "` + rfc3339TimePattern + `"
+					}
+				},
+				"required": ["challenge", "hostname", "purpose", "currentTime"],
+				"additionalProperties": false
+			},
 			"signature": {
 				"type":"string",
 				"pattern": "` + signaturePattern + `"
-			},
-			"nonce": {
-				"type":"string",
-				"maxLength":100
 			}
 		},
-		"required": ["signature"],
+		"required": ["payload", "signature"],
 		"additionalProperties": false
 	}
 	`)
@@ -274,36 +336,42 @@ var userSignatureMessageSchema = func() *gojsonschema.Schema {
 	return schema
 }()
 
-// returns (signature, nonce, error)
-func parseUserSignatureMessage(signatureMessageString string) ([]byte, string, error) {
+type UserSignatureMessage struct {
+	Payload struct {
+		Challenge   string `json:"challenge"`
+		Hostname    string `json:"hostname"`
+		Purpose     string `json:"purpose"`
+		CurrentTime string `json:"currentTime"`
+	} `json:"payload"`
+	Signature string `json:"signature"`
+}
+
+func parseUserSignatureMessage(signatureMessageString string) (*UserSignatureMessage, error) {
 
 	// validate against json schema
 	messageLoader := gojsonschema.NewStringLoader(signatureMessageString)
 	result, err := userSignatureMessageSchema.Validate(messageLoader)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	if !result.Valid() {
-		return nil, "", errors.New(formatJSONError(result))
+		return nil, errors.New(formatJSONError(result))
 	}
 
 	// parse msg
-	usrMsg := struct {
-		Signature string `json:"signature"`
-		Nonce     string `json:"nonce,omitempty"`
-	}{}
+	usrMsg := UserSignatureMessage{}
 	err = json.Unmarshal([]byte(signatureMessageString), &usrMsg)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
-	// decode base64 signature
-	sig, err := base64.StdEncoding.DecodeString(usrMsg.Signature)
-	if err != nil {
-		return nil, "", err
-	}
+	// // decode base64 signature
+	// sig, err := base64.StdEncoding.DecodeString(usrMsg.Signature)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-	return sig, usrMsg.Nonce, nil
+	return &usrMsg, nil
 
 }
 
