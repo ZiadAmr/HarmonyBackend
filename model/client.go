@@ -535,5 +535,5 @@ func (c *Client) writeTransactionMessage(transactionID [IDLEN]byte, msg string) 
 	msgWithId := append(transactionID[:], []byte(msg)...)
 	defer c.connWriteLock.Unlock()
 	c.connWriteLock.Lock()
-	return c.conn.WriteMessage(websocket.TextMessage, msgWithId)
+	return c.conn.WriteMessage(websocket.BinaryMessage, msgWithId)
 }
