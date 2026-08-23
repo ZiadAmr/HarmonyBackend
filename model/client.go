@@ -38,7 +38,7 @@ type Client struct {
 	// map of active transactionSockets for this client; id -> transactionSocket
 	// should not access directly outside client.go
 	transactionSockets     map[[IDLEN]byte]*transactionSocket
-	modifyTransactionsLock sync.Mutex
+	transactionSocketsLock sync.Mutex
 	// used to prevent new transactions being added after broken out of the main loop
 	// must use modifyTransactionsLock when reading or editing
 	disconnected bool
@@ -104,7 +104,10 @@ func (c *Client) Route(hub *Hub, makeRoutine func() Routine) {
 		id := ([IDLEN]byte)(msgBytes[:IDLEN])
 
 		// check if a transaction with this id exists already
+		c.transactionSocketsLock.Lock()
 		tSocket, exists := c.transactionSockets[id]
+		c.transactionSocketsLock.Unlock()
+
 		// if so, pass the message to that transaction
 		if exists {
 			select {
@@ -171,45 +174,44 @@ func (c *Client) Route(hub *Hub, makeRoutine func() Routine) {
 // Threadsafe.
 func (c *Client) addTransactionSocket(t *transactionSocket) error {
 
+	defer c.transactionSocketsLock.Unlock()
+	c.transactionSocketsLock.Lock()
+
 	_, idExists := c.transactionSockets[t.id]
 	if idExists {
 		panic("Attempted to registed a transaction id that already exists!")
 	}
 
-	err := func() error {
-		defer c.modifyTransactionsLock.Unlock()
-		c.modifyTransactionsLock.Lock()
-		if c.disconnected {
-			return errors.New("client has disconnected")
-		} else {
+	if c.disconnected {
+		return errors.New("client has disconnected")
+	} else {
 
-			err2 := func() error {
-				// modify the transaction to add roChan
-				defer t.transaction.transactionLock.Unlock()
-				t.transaction.transactionLock.Lock()
+		err := func() error {
+			// modify the transaction to add roChan
+			defer t.transaction.transactionLock.Unlock()
+			t.transaction.transactionLock.Lock()
 
-				// check that transaction has not terminated
-				if t.transaction.riChanIsClosed {
-					return errors.New("transaction has terminated")
-				}
-
-				pk := c.GetPublicKey()
-				if pk != nil {
-					t.transaction.pkToROChan[*pk] = t.roChan
-				}
-				t.transaction.transactionSocketCount += 1
-				return nil
-			}()
-
-			if err2 != nil {
-				return err2
+			// check that transaction has not terminated
+			if t.transaction.riChanIsClosed {
+				return errors.New("transaction has terminated")
 			}
 
-			c.transactionSockets[t.id] = t
+			pk := c.GetPublicKey()
+			if pk != nil {
+				t.transaction.pkToROChan[*pk] = t.roChan
+			}
+			t.transaction.transactionSocketCount += 1
 			return nil
+		}()
+
+		if err != nil {
+			return err
 		}
-	}()
-	return err
+
+		c.transactionSockets[t.id] = t
+		return nil
+	}
+
 }
 
 // threadsafe
@@ -219,8 +221,8 @@ func (c *Client) deleteTransactionSocket(id [IDLEN]byte) error {
 
 	// delete the transaction, if it exists
 	err := func() error {
-		defer c.modifyTransactionsLock.Unlock()
-		c.modifyTransactionsLock.Lock()
+		defer c.transactionSocketsLock.Unlock()
+		c.transactionSocketsLock.Lock()
 
 		t0, exists := c.transactionSockets[id]
 		if !exists {
@@ -273,8 +275,8 @@ func (c *Client) deleteTransactionSocket(id [IDLEN]byte) error {
 func (c *Client) close() {
 	// set disconnected - prevent more transactions being added.
 	func() {
-		defer c.modifyTransactionsLock.Unlock()
-		c.modifyTransactionsLock.Lock()
+		defer c.transactionSocketsLock.Unlock()
+		c.transactionSocketsLock.Lock()
 		c.disconnected = true
 	}()
 

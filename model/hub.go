@@ -41,6 +41,9 @@ func (h *genericHub[C]) AddClient(pk PublicKey, client C) error {
 }
 
 func (h *genericHub[C]) GetClient(key PublicKey) (C, bool) {
+	defer h.lock.Unlock()
+	h.lock.Lock()
+
 	cl, exists := h.clients[key]
 	return cl, exists
 }

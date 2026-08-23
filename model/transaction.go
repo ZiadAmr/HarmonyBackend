@@ -113,7 +113,10 @@ func (t *transaction) distributeRoutineOutputs(hub *Hub, closedRoChans *map[chan
 			}
 		} else {
 			// find the rochan corresponding to pk
+			t.transactionLock.Lock()
 			roChan, exists := t.pkToROChan[*routineOutput.Pk]
+			t.transactionLock.Unlock()
+
 			if exists {
 				roChan <- routineOutput
 				if routineOutput.Done {
