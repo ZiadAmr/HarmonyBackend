@@ -37,7 +37,7 @@ type Client struct {
 	connWriteLock sync.Mutex
 	// map of active transactionSockets for this client; id -> transactionSocket
 	// should not access directly outside client.go
-	transactionSockets     map[[IDLEN]byte]*transactionSocket
+	transactionSockets     map[[IDLEN]byte]*transactionSocket // use transactionSocketsLock
 	transactionSocketsLock sync.Mutex
 	// used to prevent new transactions being added after broken out of the main loop
 	// must use modifyTransactionsLock when reading or editing
