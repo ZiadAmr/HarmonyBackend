@@ -1,8 +1,11 @@
 package routines
 
-import "harmony/backend/model"
+import (
+	"harmony/backend/model"
+	"log/slog"
+)
 
-type RoutineConstructor func(*model.Client, *model.Hub) model.Routine
+type RoutineConstructor func(*model.Client, *model.Hub, *slog.Logger) model.Routine
 
 type RoutineConstructors struct {
 	NewComeOnline                RoutineConstructor

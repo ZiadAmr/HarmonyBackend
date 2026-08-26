@@ -1,8 +1,11 @@
 package routines
 
 import (
+	"bytes"
 	"encoding/json"
 	"harmony/backend/model"
+	"io"
+	"log/slog"
 	"strconv"
 	"strings"
 	"testing"
@@ -47,6 +50,10 @@ const comeOnlineWelcomeResponseSchema = `{
   "required": ["welcome", "terminate"],
   "additionalProperties": false
 }`
+
+const comeOnlineRoutineName = "comeOnline"
+
+var comeOnlineLoggerAttrs = toAnySlice("ip", ip0, "pk", "nil", "routine", comeOnlineRoutineName, "tsid", tsid1)
 
 func TestComeOnline(t *testing.T) {
 
@@ -100,14 +107,16 @@ func TestComeOnline(t *testing.T) {
 			t.Run(strconv.Itoa(i), func(t *testing.T) {
 
 				// mocks
-				mockClient := &model.Client{}
+				mockClient := &model.Client{IpAddr: ip0}
 				mockHub := model.NewHub(tt.allowedHostnames)
 				mockRndMsgGen := fixedMessageGenerator{tt.challenge}
 				mockCurrentTimeGen := fixedTimeGen{tt.currentTime}
+				var logOutput bytes.Buffer
+				mockLogger := slog.New(slog.NewJSONHandler(&logOutput, nil)).With(comeOnlineLoggerAttrs...)
 
-				co := newComeOnlineDependencyInj(mockClient, mockHub, mockRndMsgGen, mockCurrentTimeGen)
+				co := newComeOnlineDependencyInj(mockClient, mockHub, mockLogger, mockRndMsgGen, mockCurrentTimeGen)
 
-				testRunner(t, co, tt.steps)
+				testRunner(t, co, &logOutput, tt.steps)
 
 				// check that the key has been updated as expected
 				if mockClient.GetPublicKey() == nil {
@@ -159,65 +168,42 @@ func TestComeOnline(t *testing.T) {
 
 				t.Run(test.description+"-"+testCase.input.Msg, func(t *testing.T) {
 
-					mockClient := &model.Client{}
+					mockClient := &model.Client{IpAddr: ip0}
 					mockHub := model.NewHub(testAllowedHostnames)
-					co := newComeOnline(mockClient, mockHub)
+					var logOutput bytes.Buffer
+					mockLogger := slog.New(slog.NewJSONHandler(&logOutput, nil)).With(comeOnlineLoggerAttrs...)
+					co := newComeOnline(mockClient, mockHub, mockLogger)
 
-					testRunner(t, co, append(test.prefaceSteps, testCase), testRunnerConfig{errorsOnLastStepOnly: true})
+					testRunner(t, co, &logOutput, append(test.prefaceSteps, testCase), testRunnerConfig{errorsOnLastStepOnly: true})
 				})
 
 			}
 		}
 	})
 
-	t.Run("cancels transaction if public key is already signed in", func(t *testing.T) {
+	t.Run("cancels transaction if public key is already signed in on another connection", func(t *testing.T) {
 
 		steps := []Step{
-			{
-				input: model.RoutineInput{
-					MsgType: model.RoutineMsgType_UsrMsg,
-					Msg:     `{"initiate": "comeOnline"}`,
-				},
-				outputs: []ExpectedOutput{
-					{
-						ro: model.RoutineOutput{
-							Msgs: []string{comeOnlineVersionResponseSchema},
-						},
-					},
-				},
-			},
-			{
-				input: model.RoutineInput{
-					MsgType: model.RoutineMsgType_UsrMsg,
-					Msg: `{
-						"publicKey": "` + (string)(publicKey0) + `"
-					}`,
-				},
-				outputs: []ExpectedOutput{
-					{
-						ro: model.RoutineOutput{
-							Msgs: []string{errorSchemaString()},
-							Done: true,
-						},
-					},
-				},
-			},
+			coStepInitiate,
+			coStepPkAlreadySignedIn,
 		}
 
 		// mock hub with the client already signed in
 		hub := model.NewHub(testAllowedHostnames)
 
-		client0 := &model.Client{}
+		client0 := &model.Client{IpAddr: ip1}
 		key := publicKey0
 		client0.SetPublicKey(&key)
 		hub.AddClient(key, client0)
 
 		// client that tries to use a public key that is already signed in
-		client1 := &model.Client{}
+		client1 := &model.Client{IpAddr: ip0}
+		var logOutput bytes.Buffer
+		mockLogger := slog.New(slog.NewJSONHandler(&logOutput, nil)).With(comeOnlineLoggerAttrs...)
 
-		co := newComeOnline(client1, hub)
+		co := newComeOnline(client1, hub, mockLogger)
 
-		testRunner(t, co, steps)
+		testRunner(t, co, &logOutput, steps)
 
 		// client id was not updated
 		if client1.GetPublicKey() != nil {
@@ -261,17 +247,19 @@ func TestComeOnline(t *testing.T) {
 						},
 					},
 				},
+				logs: []ExpectedLog{coLog("INFO", ROUTINE_FAIL, "Concurrent comeOnline")},
 			},
 		}
 
 		for i, test := range co0Tests {
 			t.Run(strconv.Itoa(i), func(t *testing.T) {
 
-				client := &model.Client{}
+				client := &model.Client{IpAddr: ip0}
 				hub := model.NewHub(testAllowedHostnames)
 				mockRndMsgGen := fixedMessageGenerator{testMessage}
 				mockCurrentTimeGen := fixedTimeGen{testTime}
-				co0 := newComeOnlineDependencyInj(client, hub, mockRndMsgGen, mockCurrentTimeGen)
+				mockLogger0 := slog.New(slog.NewJSONHandler(io.Discard, nil)).With(comeOnlineLoggerAttrs...)
+				co0 := newComeOnlineDependencyInj(client, hub, mockRndMsgGen, mockCurrentTimeGen, mockLogger0)
 
 				// manually run the first test - after this point it is not complete
 				for _, step := range test {
@@ -279,8 +267,10 @@ func TestComeOnline(t *testing.T) {
 				}
 
 				// start another comeOnline
-				co1 := newComeOnlineDependencyInj(client, hub, mockRndMsgGen, mockCurrentTimeGen)
-				testRunner(t, co1, co1Test) // expect it to fail
+				var logOutput1 bytes.Buffer
+				mockLogger1 := slog.New(slog.NewJSONHandler(&logOutput1, nil)).With(comeOnlineLoggerAttrs...)
+				co1 := newComeOnlineDependencyInj(client, hub, mockRndMsgGen, mockCurrentTimeGen, mockLogger1)
+				testRunner(t, co1, &logOutput1, co1Test) // expect it to fail
 			})
 		}
 	})
@@ -307,12 +297,13 @@ func TestComeOnline(t *testing.T) {
 		for i, test := range co0Tests {
 			t.Run(strconv.Itoa(i), func(t *testing.T) {
 
-				client := &model.Client{}
+				client := &model.Client{IpAddr: ip0}
 				hub := model.NewHub(testAllowedHostnames)
 				mockRndMsgGen := fixedMessageGenerator{testMessage}
 				mockCurrentTimeGen := fixedTimeGen{testTime}
 
-				co0 := newComeOnlineDependencyInj(client, hub, mockRndMsgGen, mockCurrentTimeGen)
+				mockLogger0 := slog.New(slog.NewJSONHandler(io.Discard, nil)).With(comeOnlineLoggerAttrs...)
+				co0 := newComeOnlineDependencyInj(client, hub, mockLogger0, mockRndMsgGen, mockCurrentTimeGen)
 
 				// manually run the first test - it has completed at this point.
 				for _, step := range test {
@@ -320,8 +311,10 @@ func TestComeOnline(t *testing.T) {
 				}
 
 				// start another comeOnline
-				co1 := newComeOnlineDependencyInj(client, hub, mockRndMsgGen, mockCurrentTimeGen)
-				testRunner(t, co1, co1Test) // expect it not to fail
+				var logOutput1 bytes.Buffer
+				mockLogger1 := slog.New(slog.NewJSONHandler(&logOutput1, nil)).With(comeOnlineLoggerAttrs...)
+				co1 := newComeOnlineDependencyInj(client, hub, mockLogger1, mockRndMsgGen, mockCurrentTimeGen)
+				testRunner(t, co1, &logOutput1, co1Test) // expect it not to fail
 			})
 		}
 	})
@@ -331,30 +324,17 @@ func TestComeOnline(t *testing.T) {
 		pk := publicKey0
 
 		steps := []Step{
-			{
-				input: model.RoutineInput{
-					MsgType: model.RoutineMsgType_UsrMsg,
-					Msg:     `{"initiate": "comeOnline"}`,
-				},
-				outputs: []ExpectedOutput{
-					{
-						ro: model.RoutineOutput{
-							Msgs: []string{errorSchemaString()},
-							Done: true,
-						},
-					},
-				},
-			},
+			coStepInitiatePkAlreadySet,
 		}
 
-		mockClient := &model.Client{}
+		mockClient := &model.Client{IpAddr: ip0}
 		mockClient.SetPublicKey(&pk)
-
 		mockHub := model.NewHub(testAllowedHostnames)
+		var logOutput bytes.Buffer
+		mockLogger := slog.New(slog.NewJSONHandler(&logOutput, nil)).With(comeOnlineLoggerAttrs...)
+		co := newComeOnline(mockClient, mockHub, mockLogger)
 
-		co := newComeOnline(mockClient, mockHub)
-
-		testRunner(t, co, steps)
+		testRunner(t, co, &logOutput, steps)
 
 	})
 
@@ -374,6 +354,10 @@ func TestComeOnline(t *testing.T) {
 							},
 						},
 					},
+					logs: []ExpectedLog{
+						coLog("INFO", ROUTINE_INIT, comeOnlineRoutineName),
+						coLog("INFO", ROUTINE_FAIL, "pk A cancel"),
+					},
 				},
 			},
 			{
@@ -389,10 +373,12 @@ func TestComeOnline(t *testing.T) {
 
 		for i, tt := range tests {
 			t.Run(strconv.Itoa(i), func(t *testing.T) {
-				mockClient := &model.Client{}
+				mockClient := &model.Client{IpAddr: ip0}
 				mockHub := model.NewHub(testAllowedHostnames)
-				co := newComeOnline(mockClient, mockHub)
-				testRunner(t, co, tt)
+				var logOutput bytes.Buffer
+				mockLogger := slog.New(slog.NewJSONHandler(&logOutput, nil)).With(comeOnlineLoggerAttrs...)
+				co := newComeOnline(mockClient, mockHub, mockLogger)
+				testRunner(t, co, &logOutput, tt)
 			})
 		}
 	})
@@ -412,10 +398,12 @@ func TestComeOnline(t *testing.T) {
 
 		for i, tt := range tests {
 			t.Run(strconv.Itoa(i), func(t *testing.T) {
-				mockClient := &model.Client{}
+				mockClient := &model.Client{IpAddr: ip0}
 				mockHub := model.NewHub(testAllowedHostnames)
-				co := newComeOnline(mockClient, mockHub)
-				testRunner(t, co, tt)
+				var logOutput bytes.Buffer
+				mockLogger := slog.New(slog.NewJSONHandler(&logOutput, nil)).With(comeOnlineLoggerAttrs...)
+				co := newComeOnline(mockClient, mockHub, mockLogger)
+				testRunner(t, co, &logOutput, tt)
 			})
 		}
 	})
@@ -435,10 +423,12 @@ func TestComeOnline(t *testing.T) {
 
 		for i, tt := range tests {
 			t.Run(strconv.Itoa(i), func(t *testing.T) {
-				mockClient := &model.Client{}
+				mockClient := &model.Client{IpAddr: ip0}
 				mockHub := model.NewHub(testAllowedHostnames)
-				co := newComeOnline(mockClient, mockHub)
-				testRunner(t, co, tt)
+				var logOutput bytes.Buffer
+				mockLogger := slog.New(slog.NewJSONHandler(&logOutput, nil)).With(comeOnlineLoggerAttrs...)
+				co := newComeOnline(mockClient, mockHub, mockLogger)
+				testRunner(t, co, &logOutput, tt)
 			})
 		}
 
@@ -462,15 +452,6 @@ func TestComeOnline(t *testing.T) {
 					coStepValidPk(publicKey0, testMessage),
 				},
 				cases: []Step{
-					// coStepInvalidSignature(`{"signature":"_"}`),
-					// coStepInvalidSignature(`{"signature":4}`),
-					// coStepInvalidSignature(`{"signature":null}`),
-					// coStepInvalidSignature(`{"signature":"` + testPk0Signature + `", "extraProperty":"hello"}`),
-					// coStepInvalidSignature(testPk0Signature /*no json wrapper*/),
-					// coStepInvalidSignature(`{"signature":"0000"}`, "Invalid signature"),
-					// coStepInvalidSignature(`{"signature":"jIX/9ZHy6UuGZzywconx5rSV77yGugYg2M40ROilWS/zo3qnlau2Zn2p045ZYdKDH98LrMm8vJOmdmWBCkY0Bg=="}`, "Invalid signature" /*One char modified in signature*/),
-					// coStepInvalidSignature(`{"signature":"Bzj4qPcKt/bgAfH+JN3CWqyD0X0djWXLh19Bk23yJxrVunVfC/yU9MP6ue/as7edxcY08xdoWjFKu5HYMeiGBQ=="}`, "Invalid signature" /*Signed with a different private key*/),
-					// coStepInvalidSignature(`{"signature":"TGc2zWcAepDkjtNCXwE55vDp2kXmfkKwvGuWpcO8LymeVkqaKrjXwGMLPjtTt+OA5bQrOrU7nOqf77o5jlVWBw==", "nonce": "This nonce is too long - it is greater than 100 characters. The server should reject it for that reason."}`),
 					coStepInvalidSignature(`{}`),
 					coStepInvalidSignature(`}`),
 					coStepInvalidSignature(`{"signature":"0NK9zFHF7UeyQpWPMC9BsrD+wJiEEN1NbywNdHS1URx+FrQT5yCri66CSIh41umXTxEYiXS+LujfbJJW+wRbDQ=="` /*No payload*/),
@@ -495,9 +476,11 @@ func TestComeOnline(t *testing.T) {
 					mockHub := model.NewHub(testAllowedHostnames)
 					mockRndMsgGen := fixedMessageGenerator{test.msgToSign}
 					mockCurrentTimeGen := fixedTimeGen{testTime}
-					co := newComeOnlineDependencyInj(mockClient, mockHub, mockRndMsgGen, mockCurrentTimeGen)
+					var logOutput bytes.Buffer
+					mockLogger := slog.New(slog.NewJSONHandler(&logOutput, nil)).With(comeOnlineLoggerAttrs...)
+					co := newComeOnlineDependencyInj(mockClient, mockHub, mockLogger, mockRndMsgGen, mockCurrentTimeGen)
 
-					testRunner(t, co, append(test.prefaceSteps, testCase), testRunnerConfig{errorsOnLastStepOnly: true})
+					testRunner(t, co, &logOutput, append(test.prefaceSteps, testCase), testRunnerConfig{errorsOnLastStepOnly: true})
 
 					// check that the key has NOT been updated
 					if mockClient.GetPublicKey() != nil {
@@ -531,6 +514,26 @@ func TestComeOnline(t *testing.T) {
 
 }
 
+func coLog(level string, kind string, msg ...string) ExpectedLog {
+	var _msg = ""
+	if len(msg) > 0 {
+		_msg = msg[0]
+	}
+	return ExpectedLog{
+		level: level,
+		kind:  kind,
+		client: &ClientLogAttributes{
+			pk: "nil",
+			ip: ip0,
+		},
+		transaction: &TransactionLogAttributes{
+			routine: comeOnlineRoutineName,
+			tsid:    tsid1,
+		},
+		msg: _msg,
+	}
+}
+
 var coStepInitiate = Step{
 	description: "User initiates the routine, and server replies with protocol version.",
 	input: model.RoutineInput{
@@ -544,6 +547,43 @@ var coStepInitiate = Step{
 			},
 		},
 	},
+	logs: []ExpectedLog{coLog("INFO", ROUTINE_INIT, comeOnlineRoutineName)},
+}
+
+var coStepInitiatePkAlreadySet = Step{
+	input: model.RoutineInput{
+		MsgType: model.RoutineMsgType_UsrMsg,
+		Msg:     `{"initiate": "comeOnline"}`,
+	},
+	outputs: []ExpectedOutput{
+		{
+			ro: model.RoutineOutput{
+				Msgs: []string{errorSchemaString()},
+				Done: true,
+			},
+		},
+	},
+	logs: []ExpectedLog{
+		coLog("INFO", ROUTINE_INIT, comeOnlineRoutineName),
+		coLog("INFO", ROUTINE_FAIL, "pk already set"),
+	},
+}
+
+var coStepPkAlreadySignedIn = Step{
+	description: "User provides public key, but a different client is already signed in with this key",
+	input: model.RoutineInput{
+		MsgType: model.RoutineMsgType_UsrMsg,
+		Msg:     `{"publicKey": "` + (string)(publicKey0) + `"}`,
+	},
+	outputs: []ExpectedOutput{
+		{
+			ro: model.RoutineOutput{
+				Msgs: []string{errorSchemaString()},
+				Done: true,
+			},
+		},
+	},
+	logs: []ExpectedLog{coLog("INFO", ROUTINE_FAIL)},
 }
 
 var coStepValidPk = func(pk model.PublicKey, msgToSign ...string) Step {
@@ -601,6 +641,7 @@ var coStepValidSignature = func(signatureMessage string) Step {
 				},
 			},
 		},
+		logs: []ExpectedLog{coLog("INFO", ROUTINE_SUCCEED)},
 	}
 }
 
@@ -617,6 +658,7 @@ var coStepClientCancel = Step{
 			},
 		},
 	},
+	logs: []ExpectedLog{coLog("INFO", ROUTINE_FAIL, "pk A cancel")},
 }
 
 var coStepClientClose = Step{
@@ -625,6 +667,7 @@ var coStepClientClose = Step{
 		MsgType: model.RoutineMsgType_ClientClose,
 	},
 	// expect no output
+	logs: []ExpectedLog{coLog("INFO", ROUTINE_FAIL, "pk A close")},
 }
 
 var coStepTimeout = Step{
@@ -640,6 +683,7 @@ var coStepTimeout = Step{
 			},
 		},
 	},
+	logs: []ExpectedLog{coLog("INFO", ROUTINE_FAIL, "pk A timeout")},
 }
 
 var coStepInvalidSignature = func(signatureMessage string, errorMessage ...string) Step {
@@ -657,6 +701,7 @@ var coStepInvalidSignature = func(signatureMessage string, errorMessage ...strin
 				},
 			},
 		},
+		logs: []ExpectedLog{coLog("INFO", ROUTINE_FAIL, "Invalid signature")},
 	}
 }
 
@@ -675,6 +720,7 @@ var coStepBadPublicKey = func(publicKeyMessage string, errorMessage ...string) S
 				},
 			},
 		},
+		logs: []ExpectedLog{ectpLog("INFO", ROUTINE_FAIL, "Bad public key")},
 	}
 }
 

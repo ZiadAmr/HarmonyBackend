@@ -54,16 +54,18 @@ type Client struct {
 	modifyTransactionCount sync.Mutex
 
 	// PUBLIC METHODS
+	IpAddr string
 	// lock to prevent simultaneous comeOnline transactions
 	ComeOnlineLock sync.Mutex
 }
 
-func MakeClient(conn Conn) Client {
+func MakeClient(conn Conn, ipAddr string) Client {
 	return Client{
 		publicKey: nil, // initially unset. When set, it implies the client has been added to the hub.
 
 		conn:               conn,
 		transactionSockets: make(map[[IDLEN]byte]*transactionSocket),
+		IpAddr:             ipAddr,
 	}
 }
 

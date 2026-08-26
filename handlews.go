@@ -86,9 +86,9 @@ func handleWs(c *gin.Context) {
 
 }
 
-func createAndRouteClient(conn model.Conn) {
+func createAndRouteClient(conn *websocket.Conn) {
 
-	client := model.MakeClient(conn)
+	client := model.MakeClient(conn, conn.RemoteAddr().String())
 
 	// delete client when done (closed connection)
 	defer func() {

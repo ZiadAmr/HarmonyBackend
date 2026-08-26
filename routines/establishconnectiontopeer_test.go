@@ -1,11 +1,17 @@
 package routines
 
 import (
+	"bytes"
 	"harmony/backend/model"
+	"log/slog"
 	"strconv"
 	"testing"
 	"time"
 )
+
+const establishConnectionToPeerRoutineName = "establishConnectionToPeer"
+
+var establishConnectionToPeerLoggerAttrs = toAnySlice("ip", ip0, "pk", string(publicKey1), "routine", establishConnectionToPeerRoutineName, "tsid", tsid1)
 
 const ectpExpectedTimeoutDuration = 20 * time.Second
 const maxIceCandidates = 20
@@ -20,12 +26,14 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 				ectpStepInitiateOffline,
 			}
 
-			client := &model.Client{}
+			client := &model.Client{IpAddr: ip0}
 			client.SetPublicKey(&publicKey0)
 			hub := model.NewHub(testAllowedHostnames)
-			ectp := newEstablishConnectionToPeer(client, hub)
+			var logOutput bytes.Buffer
+			mockLogger := slog.New(slog.NewJSONHandler(&logOutput, nil)).With(establishConnectionToPeerLoggerAttrs...)
+			ectp := newEstablishConnectionToPeer(client, hub, mockLogger)
 
-			testRunner(t, ectp, test)
+			testRunner(t, ectp, &logOutput, test)
 		})
 
 		t.Run("friend rejects", func(t *testing.T) {
@@ -34,16 +42,18 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 				ectpStepReject,
 			}
 
-			clientA := &model.Client{}
+			clientA := &model.Client{IpAddr: ip0}
 			clientA.SetPublicKey(&publicKey0)
-			clientB := &model.Client{}
+			clientB := &model.Client{IpAddr: ip1}
 			clientB.SetPublicKey(&publicKey1)
 			hub := model.NewHub(testAllowedHostnames)
 			hub.AddClient(publicKey0, clientA)
 			hub.AddClient(publicKey1, clientB)
-			ectp := newEstablishConnectionToPeer(clientA, hub)
+			var logOutput bytes.Buffer
+			mockLogger := slog.New(slog.NewJSONHandler(&logOutput, nil)).With(establishConnectionToPeerLoggerAttrs...)
+			ectp := newEstablishConnectionToPeer(clientA, hub, mockLogger)
 
-			testRunner(t, ectp, test)
+			testRunner(t, ectp, &logOutput, test)
 		})
 
 		t.Run("clients connect", func(t *testing.T) {
@@ -72,16 +82,18 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 
 			for i, test := range tests {
 				t.Run(strconv.Itoa(i), func(t *testing.T) {
-					clientA := &model.Client{}
+					clientA := &model.Client{IpAddr: ip0}
 					clientA.SetPublicKey(&publicKey0)
-					clientB := &model.Client{}
+					clientB := &model.Client{IpAddr: ip0}
 					clientB.SetPublicKey(&publicKey1)
 					hub := model.NewHub(testAllowedHostnames)
 					hub.AddClient(publicKey0, clientA)
 					hub.AddClient(publicKey1, clientB)
-					ectp := newEstablishConnectionToPeer(clientA, hub)
+					var logOutput bytes.Buffer
+					mockLogger := slog.New(slog.NewJSONHandler(&logOutput, nil)).With(establishConnectionToPeerLoggerAttrs...)
+					ectp := newEstablishConnectionToPeer(clientA, hub, mockLogger)
 
-					testRunner(t, ectp, test)
+					testRunner(t, ectp, &logOutput, test)
 				})
 
 			}
@@ -113,14 +125,30 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 							},
 						},
 					},
+					logs: []ExpectedLog{
+						{
+							level: "INFO",
+							kind:  ROUTINE_FAIL,
+							client: &ClientLogAttributes{
+								ip: ip0,
+								pk: "nil",
+							},
+							transaction: &TransactionLogAttributes{
+								routine: friendRejectionRoutineName,
+								tsid:    tsid1,
+							},
+						},
+					},
 				},
 			}
 
-			client := &model.Client{}
+			client := &model.Client{IpAddr: ip0}
 			hub := model.NewHub(testAllowedHostnames)
-			ectp := newEstablishConnectionToPeer(client, hub)
+			var logOutput bytes.Buffer
+			mockLogger := slog.New(slog.NewJSONHandler(&logOutput, nil)).With(establishConnectionToPeerLoggerAttrs...)
+			ectp := newEstablishConnectionToPeer(client, hub, mockLogger)
 
-			testRunner(t, ectp, test)
+			testRunner(t, ectp, &logOutput, test)
 		})
 
 		t.Run("User tries to connect to themself", func(t *testing.T) {
@@ -144,16 +172,21 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 							},
 						},
 					},
+					logs: []ExpectedLog{
+						frejLog("INFO", ROUTINE_FAIL, "Send to self"),
+					},
 				},
 			}
 
-			client := &model.Client{}
+			client := &model.Client{IpAddr: ip0}
 			client.SetPublicKey(&publicKey0)
 			hub := model.NewHub(testAllowedHostnames)
 			hub.AddClient(publicKey0, client)
-			ectp := newEstablishConnectionToPeer(client, hub)
+			var logOutput bytes.Buffer
+			mockLogger := slog.New(slog.NewJSONHandler(&logOutput, nil)).With(establishConnectionToPeerLoggerAttrs...)
+			ectp := newEstablishConnectionToPeer(client, hub, mockLogger)
 
-			testRunner(t, ectp, test)
+			testRunner(t, ectp, &logOutput, test)
 		})
 
 		t.Run("Friend is offline", func(t *testing.T) {
@@ -167,6 +200,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 							Msg:     `{"initiate": "sendConnectionRequest"}`,
 						},
 						outputs: outputPkAError,
+						logs:    []ExpectedLog{ectpLog("INFO", ROUTINE_FAIL)},
 					},
 				},
 				{
@@ -178,6 +212,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 							Msg:     `{"initiate": "sendConnectionRequest", "key":"4"}`,
 						},
 						outputs: outputPkAError,
+						logs:    []ExpectedLog{ectpLog("INFO", ROUTINE_FAIL)},
 					},
 				},
 				{
@@ -189,6 +224,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 							Msg:     `)`,
 						},
 						outputs: outputPkAError,
+						logs:    []ExpectedLog{ectpLog("INFO", ROUTINE_FAIL)},
 					},
 				},
 				{
@@ -200,6 +236,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 							Msg:     `{"initiate": "sendConnectionRequest", "key":"` + (string)(publicKey1) + `", "extraProperty!":{}}`,
 						},
 						outputs: outputPkAError,
+						logs:    []ExpectedLog{ectpLog("INFO", ROUTINE_FAIL)},
 					},
 				},
 			}
@@ -209,9 +246,10 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 					client := &model.Client{}
 					client.SetPublicKey(&publicKey0)
 					hub := model.NewHub(testAllowedHostnames)
-					ectp := newEstablishConnectionToPeer(client, hub)
-
-					testRunner(t, ectp, test)
+					var logOutput bytes.Buffer
+					mockLogger := slog.New(slog.NewJSONHandler(&logOutput, nil)).With(establishConnectionToPeerLoggerAttrs...)
+					ectp := newEstablishConnectionToPeer(client, hub, mockLogger)
+					testRunner(t, ectp, &logOutput, test)
 				})
 			}
 		})
@@ -223,7 +261,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 				cases        []Step
 			}{
 				{
-					description: "A initiates; server has send msg to B",
+					description: "A initiates; server has sent msg to B",
 					prefaceSteps: []Step{
 						ectpStepInitiateOnline,
 					},
@@ -241,11 +279,13 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 								Msg:     "lol",
 							},
 							outputs: outputPkBErrorToBoth,
+							logs:    []ExpectedLog{ectpLog("INFO", ROUTINE_FAIL)},
 						},
 						{
 							description: "A sends a message out of order",
 							input:       ectpStepAnswer.input,
 							outputs:     outputPkAErrorToBoth,
+							logs:        []ExpectedLog{ectpLog("INFO", ROUTINE_FAIL)},
 						},
 					},
 				},
@@ -269,11 +309,13 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 								Msg:     "xd",
 							},
 							outputs: outputPkAErrorToBoth,
+							logs:    []ExpectedLog{ectpLog("INFO", ROUTINE_FAIL)},
 						},
 						{
 							description: "B sends a message out of order",
 							input:       ectpStepIceBtoA.input,
 							outputs:     outputPkBErrorToBoth,
+							logs:        []ExpectedLog{ectpLog("INFO", ROUTINE_FAIL)},
 						},
 					},
 				},
@@ -299,6 +341,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 								Msg:     "lol",
 							},
 							outputs: outputPkAErrorToBoth,
+							logs:    []ExpectedLog{ectpLog("INFO", ROUTINE_FAIL)},
 						},
 						{
 							description: "B sends bad input",
@@ -308,6 +351,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 								Msg:     "lol",
 							},
 							outputs: outputPkBErrorToBoth,
+							logs:    []ExpectedLog{ectpLog("INFO", ROUTINE_FAIL)},
 						},
 					},
 				},
@@ -331,6 +375,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 							description: "A sends another ice candidate after the final once",
 							input:       ectpStepIceAToB.input,
 							outputs:     outputPkAErrorToBoth,
+							logs:        []ExpectedLog{ectpLog("INFO", ROUTINE_FAIL)},
 						},
 					},
 				},
@@ -354,6 +399,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 							description: "B sends another message candidate after the final once",
 							input:       ectpStepIceBtoA.input,
 							outputs:     outputPkBErrorToBoth,
+							logs:        []ExpectedLog{ectpLog("INFO", ROUTINE_FAIL)},
 						},
 					},
 				},
@@ -373,6 +419,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 							description: "A sends one ICE candidate too many",
 							input:       ectpStepIceAToB.input,
 							outputs:     outputCustomErrorToBoth("You have sent too many ICE candidates", "Peer is sending too many ICE candidates"),
+							logs:        []ExpectedLog{ectpLog("INFO", ROUTINE_FAIL)},
 						},
 					},
 				},
@@ -392,6 +439,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 							description: "B sends one ICE candidate too many",
 							input:       ectpStepIceBtoA.input,
 							outputs:     outputCustomErrorToBoth("Peer is sending too many ICE candidates", "You have sent too many ICE candidates"),
+							logs:        []ExpectedLog{ectpLog("INFO", ROUTINE_FAIL)},
 						},
 					},
 				},
@@ -403,16 +451,18 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 
 					t.Run(test.description+"-"+strconv.Itoa(j), func(t *testing.T) {
 
-						clientA := &model.Client{}
+						clientA := &model.Client{IpAddr: ip0}
 						clientA.SetPublicKey(&publicKey0)
-						clientB := &model.Client{}
+						clientB := &model.Client{IpAddr: ip0}
 						clientB.SetPublicKey(&publicKey1)
 						hub := model.NewHub(testAllowedHostnames)
 						hub.AddClient(publicKey0, clientA)
 						hub.AddClient(publicKey1, clientB)
-						ectp := newEstablishConnectionToPeer(clientA, hub)
+						var logOutput bytes.Buffer
+						mockLogger := slog.New(slog.NewJSONHandler(&logOutput, nil)).With(establishConnectionToPeerLoggerAttrs...)
+						ectp := newEstablishConnectionToPeer(clientA, hub, mockLogger)
 
-						testRunner(t, ectp, append(test.prefaceSteps, testCase), testRunnerConfig{errorsOnLastStepOnly: true})
+						testRunner(t, ectp, &logOutput, append(test.prefaceSteps, testCase), testRunnerConfig{errorsOnLastStepOnly: true})
 					})
 
 				}
@@ -583,6 +633,26 @@ func ectpSchemaIceCandidate(payload string) string {
 	}`
 }
 
+func ectpLog(level string, kind string, msg ...string) ExpectedLog {
+	var _msg = ""
+	if len(msg) > 0 {
+		_msg = msg[0]
+	}
+	return ExpectedLog{
+		level: level,
+		kind:  kind,
+		client: &ClientLogAttributes{
+			pk: string(publicKey0),
+			ip: ip0,
+		},
+		transaction: &TransactionLogAttributes{
+			routine: establishConnectionToPeerRoutineName,
+			tsid:    tsid1,
+		},
+		msg: _msg,
+	}
+}
+
 // TODO>>
 const sdpOffer = "replace this with an actual offer"
 const sdpAnswer = `replace this with an actual answer`
@@ -624,6 +694,9 @@ var ectpStepInitiateOnline = Step{
 			},
 		},
 	},
+	logs: []ExpectedLog{
+		ectpLog("INFO", ROUTINE_ADD_PK, string(publicKey1)),
+	},
 }
 
 var ectpStepInitiateOffline = Step{
@@ -643,6 +716,10 @@ var ectpStepInitiateOffline = Step{
 				Done: true,
 			},
 		},
+	},
+	logs: []ExpectedLog{
+		ectpLog("INFO", ROUTINE_ADD_PK_OFFLINE, string(publicKey1)),
+		ectpLog("INFO", ROUTINE_SUCCEED),
 	},
 }
 
@@ -699,6 +776,9 @@ var ectpStepReject = Step{
 				Done: true,
 			},
 		},
+	},
+	logs: []ExpectedLog{
+		ectpLog("INFO", ROUTINE_SUCCEED, "Connection request reject"),
 	},
 }
 
@@ -834,6 +914,9 @@ var ectpStepFinalIceATerminate = Step{
 			},
 		},
 	},
+	logs: []ExpectedLog{
+		ectpLog("INFO", ROUTINE_SUCCEED, "Peers connect"),
+	},
 }
 
 var ectpStepFinalIceB = Step{
@@ -890,6 +973,9 @@ var ectpStepFinalIceBTerminate = Step{
 			},
 		},
 	},
+	logs: []ExpectedLog{
+		ectpLog("INFO", ROUTINE_SUCCEED, "Peers connect"),
+	},
 }
 
 var stepPkADisconnect = Step{
@@ -899,6 +985,7 @@ var stepPkADisconnect = Step{
 		Pk:      &publicKey0,
 	},
 	outputs: outputPkADisconnectedToB,
+	logs:    []ExpectedLog{freqLog("INFO", ROUTINE_FAIL, "pk A disconnect")},
 }
 
 var stepPkBDisconnect = Step{
@@ -908,6 +995,7 @@ var stepPkBDisconnect = Step{
 		Pk:      &publicKey1,
 	},
 	outputs: outputPkBDisconnectedToA,
+	logs:    []ExpectedLog{freqLog("INFO", ROUTINE_FAIL, "pk B disconnect")},
 }
 
 var stepPkACancel = Step{
@@ -932,6 +1020,7 @@ var stepPkACancel = Step{
 			},
 		},
 	},
+	logs: []ExpectedLog{freqLog("INFO", ROUTINE_FAIL, "pk A cancel")},
 }
 var stepPkBCancel = Step{
 	description: "B cancels",
@@ -955,6 +1044,7 @@ var stepPkBCancel = Step{
 			},
 		},
 	},
+	logs: []ExpectedLog{freqLog("INFO", ROUTINE_FAIL, "pk B cancel")},
 }
 
 var stepPkATimeout = Step{
@@ -964,6 +1054,7 @@ var stepPkATimeout = Step{
 		Pk:      &publicKey0,
 	},
 	outputs: outputPkATimeoutToBoth,
+	logs:    []ExpectedLog{freqLog("INFO", ROUTINE_FAIL, "pk A timeout")},
 }
 
 var stepPkBTimeout = Step{
@@ -973,6 +1064,7 @@ var stepPkBTimeout = Step{
 		Pk:      &publicKey1,
 	},
 	outputs: outputPkBTimeoutToBoth,
+	logs:    []ExpectedLog{freqLog("INFO", ROUTINE_FAIL, "pk B timeout")},
 }
 
 var outputPkAError = []ExpectedOutput{

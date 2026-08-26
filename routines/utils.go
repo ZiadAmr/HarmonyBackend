@@ -103,6 +103,10 @@ func publicKeyToString(pk model.PublicKey) string {
 	return (string)(pk)
 }
 
+func toAnySlice(args ...any) []any {
+	return args
+}
+
 // const publicKeyBase32Len = 472
 
 // from https://stackoverflow.com/questions/475074/regex-to-parse-or-validate-base64-data
