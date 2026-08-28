@@ -5,12 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"harmony/backend/model"
+	"log/slog"
 	"strings"
 
 	"github.com/xeipuuv/gojsonschema"
 )
-
-const SERVER_API_VERSION = "2.0.1"
 
 type MasterRoutine struct {
 	isSubRoutineSet bool
@@ -18,17 +17,19 @@ type MasterRoutine struct {
 	rc              RoutineConstructors
 	client          *model.Client
 	hub             *model.Hub
+	logger          *slog.Logger
 }
 
-func NewMasterRoutine(client *model.Client, hub *model.Hub) model.Routine {
-	return newMasterRoutineDependencyInj(routineContructorImplementations, client, hub)
+func NewMasterRoutine(client *model.Client, hub *model.Hub, logger *slog.Logger) model.Routine {
+	return newMasterRoutineDependencyInj(routineContructorImplementations, client, hub, logger)
 }
 
-func newMasterRoutineDependencyInj(rc RoutineConstructors, client *model.Client, hub *model.Hub) model.Routine {
+func newMasterRoutineDependencyInj(rc RoutineConstructors, client *model.Client, hub *model.Hub, logger *slog.Logger) model.Routine {
 	return &MasterRoutine{
 		rc:     rc,
 		client: client,
 		hub:    hub,
+		logger: logger,
 	}
 }
 
@@ -80,10 +81,13 @@ func (r *MasterRoutine) setSubRoutineFromInitialMsg(msg string) error {
 	result, err := initiateSchema.Validate(message)
 
 	if err != nil {
+		r.logger.Info("bad initiate msg: "+err.Error(), "kind", "ROUTINE_FAIL")
 		return err
 	}
 	if !result.Valid() {
-		return errors.New(formatJSONError(result))
+		errStr := formatJSONError(result)
+		r.logger.Info("bad initiate msg: "+errStr, "kind", "ROUTINE_FAIL")
+		return errors.New(errStr)
 	}
 
 	parsed := struct {
@@ -95,17 +99,22 @@ func (r *MasterRoutine) setSubRoutineFromInitialMsg(msg string) error {
 		return err
 	}
 
+	sublogger := r.logger.With("routine", parsed.Initiate)
 	switch parsed.Initiate {
 	case "comeOnline":
-		r.subRoutine = r.rc.NewComeOnline(r.client, r.hub)
+		r.logger.Info("comeOnline", "kind", "ROUTINE_INIT")
+		r.subRoutine = r.rc.NewComeOnline(r.client, r.hub, sublogger)
 	case "sendConnectionRequest":
-		r.subRoutine = r.rc.NewEstablishConnectionToPeer(r.client, r.hub)
+		r.logger.Info("sendConnectionRequest", "kind", "ROUTINE_INIT")
+		r.subRoutine = r.rc.NewEstablishConnectionToPeer(r.client, r.hub, sublogger)
 	case "sendFriendRequest":
-		r.subRoutine = r.rc.NewFriendRequest(r.client, r.hub)
+		r.logger.Info("sendFriendRequest", "kind", "ROUTINE_INIT")
+		r.subRoutine = r.rc.NewFriendRequest(r.client, r.hub, sublogger)
 	case "sendFriendRejection":
-		r.subRoutine = r.rc.NewFriendRejection(r.client, r.hub)
+		r.logger.Info("sendFriendRejection", "kind", "ROUTINE_INIT")
+		r.subRoutine = r.rc.NewFriendRejection(r.client, r.hub, sublogger)
 	default:
-		return errors.New("routine does not exist")
+		panic("routine does not exist")
 	}
 	return nil
 }

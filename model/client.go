@@ -5,8 +5,10 @@
 package model
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"sync"
 	"time"
@@ -32,6 +34,7 @@ type Conn interface {
 type Client struct {
 	// PRIVATE METHODS: not accessible outside current package
 	publicKey *PublicKey
+	logger    *slog.Logger
 	// lock to prevent simultaneous writes to the websocket conn
 	conn          Conn
 	connWriteLock sync.Mutex
@@ -54,16 +57,19 @@ type Client struct {
 	modifyTransactionCount sync.Mutex
 
 	// PUBLIC METHODS
+	IpAddr string
 	// lock to prevent simultaneous comeOnline transactions
 	ComeOnlineLock sync.Mutex
 }
 
-func MakeClient(conn Conn) Client {
+func MakeClient(conn Conn, ipAddr string, logger *slog.Logger) Client {
 	return Client{
+		logger:    logger,
 		publicKey: nil, // initially unset. When set, it implies the client has been added to the hub.
 
 		conn:               conn,
 		transactionSockets: make(map[[IDLEN]byte]*transactionSocket),
+		IpAddr:             ipAddr,
 	}
 }
 
@@ -76,12 +82,15 @@ func (c *Client) SetPublicKey(pk *PublicKey) error {
 	if c.publicKey != nil {
 		return errors.New("public key already set")
 	}
+	if c.logger != nil {
+		c.logger = c.logger.With("pk", string(*pk))
+	}
 	c.publicKey = pk
 	return nil
 }
 
 // a loop that demultiplexes messages and forwards them to correct handlers
-func (c *Client) Route(hub *Hub, makeRoutine func() Routine) {
+func (c *Client) Route(hub *Hub, makeRoutine func(logger *slog.Logger) Routine) {
 
 	for {
 
@@ -131,7 +140,8 @@ func (c *Client) Route(hub *Hub, makeRoutine func() Routine) {
 			c.transactionCount++
 		}()
 
-		tNew := newTransaction(makeRoutine())
+		idB64 := base64.StdEncoding.EncodeToString(id[:])
+		tNew := newTransaction(makeRoutine(c.logger.With("tsid", idB64)))
 		tSocketNew := newTransactionSocket(tNew, id)
 
 		// add to transaction list

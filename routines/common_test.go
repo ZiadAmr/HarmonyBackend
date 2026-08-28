@@ -2,11 +2,19 @@
 package routines
 
 import (
+	"bytes"
+	"encoding/json"
 	"harmony/backend/model"
 	"testing"
 
 	"github.com/xeipuuv/gojsonschema"
 )
+
+const ROUTINE_INIT = "ROUTINE_INIT"
+const ROUTINE_ADD_PK = "ROUTINE_ADD_PK"
+const ROUTINE_ADD_PK_OFFLINE = "ROUTINE_ADD_PK_OFFLINE"
+const ROUTINE_SUCCEED = "ROUTINE_SUCCEED"
+const ROUTINE_FAIL = "ROUTINE_FAIL"
 
 var publicKey0 = (model.PublicKey)("MCowBQYDK2VwAyEAUFRxKDllkUY843/zVOPE67zGqkGoMZd7dGKl2+9+pYQ=")
 
@@ -14,6 +22,11 @@ var publicKey0 = (model.PublicKey)("MCowBQYDK2VwAyEAUFRxKDllkUY843/zVOPE67zGqkGo
 //                    MC4CAQAwBQYDK2VwBCIEILLK2qyMQi162qzsJ2pV5cS5tX/6XEgWtw62eUKOKLAF
 
 var publicKey1 = (model.PublicKey)("MCowBQYDK2VwAyEA1x5dCGTiFyoAGPP8XTzv58tZQHx5RB5E+5xFX5xwMFQ=")
+
+var ip0 = "1.2.3.4"
+var ip1 = "2001:db8:85a3::8a2e:370:7334"
+
+var tsid1 = "EWXkfE9Lee5PbGgt+yXm0w=="
 
 // var privateKey1 = "MC4CAQAwBQYDK2VwBCIEIP192NwPoJrEi4IxNZRpYd5E9yoDQypY+3VNSuxSvFtn"
 
@@ -23,10 +36,28 @@ type ExpectedOutput struct {
 	verifyTimeouts bool
 }
 
+type ClientLogAttributes struct {
+	ip string
+	pk string
+}
+type TransactionLogAttributes struct {
+	routine string
+	tsid    string
+}
+type ExpectedLog struct {
+	time        string
+	level       string
+	kind        string
+	client      *ClientLogAttributes
+	transaction *TransactionLogAttributes
+	msg         string
+}
+
 type Step struct {
 	description string
 	input       model.RoutineInput
 	outputs     []ExpectedOutput
+	logs        []ExpectedLog
 }
 
 func pkToStr(pk *model.PublicKey) string {
@@ -41,7 +72,7 @@ type testRunnerConfig struct {
 	errorsOnLastStepOnly bool
 }
 
-func testRunner(t *testing.T, r model.Routine, steps []Step, configs ...testRunnerConfig) {
+func testRunner(t *testing.T, r model.Routine, logOutput *bytes.Buffer, steps []Step, configs ...testRunnerConfig) {
 
 	var config testRunnerConfig
 
@@ -86,6 +117,8 @@ func testRunner(t *testing.T, r model.Routine, steps []Step, configs ...testRunn
 	}
 
 	for stepNum, step = range steps {
+
+		logOutput.Reset()
 
 		expectedOutputsRemaining := make([]ExpectedOutput, len(step.outputs))
 		copy(expectedOutputsRemaining, step.outputs)
@@ -226,6 +259,39 @@ func testRunner(t *testing.T, r model.Routine, steps []Step, configs ...testRunn
 			tErrorf("Expected a RoutineOutput for pk %s in step %d", pkToStr(eo.ro.Pk), stepNum)
 		}
 
+		// check logs. Should have been formatted as json
+		for i, expectedLog := range step.logs {
+			schemaStr := expectedLogToSchema(expectedLog)
+			got, err := logOutput.ReadString('\n')
+			if err != nil {
+				tErrorf("Error reading log message %d in step %d: %s. Expected a log to match schema %s", i, stepNum, err.Error(), schemaStr)
+				break
+			}
+			schemaLoader := gojsonschema.NewStringLoader(schemaStr)
+			schema, err := gojsonschema.NewSchema(schemaLoader)
+			if err != nil {
+				tErrorf("Problem with schema %s: %s", schemaStr, err.Error())
+				continue
+			}
+			strLoader := gojsonschema.NewStringLoader(got)
+			result, err := schema.Validate(strLoader)
+			if err != nil {
+				tErrorf("%s. Expected log %d in step %d to match schema: %s\nGot: %s", err.Error(), i, stepNum, schemaStr, got)
+			} else if !result.Valid() {
+				t.Errorf("%s. Expected log %d in step %d to match schema: %s\nGot: %s", formatJSONError(result), i, stepNum, schemaStr, got)
+			}
+		}
+
+		// check no additional logs
+		if logOutput.Len() > 0 {
+			got, err := logOutput.ReadString('\n')
+			if err != nil {
+				tErrorf("Unexpected log message in step %d: (read failure) %s", stepNum, err.Error())
+			} else {
+				tErrorf("Unexpected log message in step %d: %s", stepNum, got)
+			}
+		}
+
 	}
 
 	// check that all transaction sockets have been closed
@@ -278,10 +344,50 @@ func errorSchemaString(msg ...string) string {
 	}`
 }
 
+func getLogFragment(key string, value string) string {
+	keyEsc, _ := json.Marshal(key)
+	if value == "" {
+		return string(keyEsc) + `:{"type":"string"}`
+	} else {
+		valueEsc, _ := json.Marshal(value)
+		return string(keyEsc) + `:{"const":` + string(valueEsc) + `}`
+	}
+}
+
+func expectedLogToSchema(log ExpectedLog) string {
+
+	var schema string = `{"$schema": "https://json-schema.org/draft/2020-12/schema","type": "object","properties": {`
+	schema += getLogFragment("time", log.time) + ","
+	schema += getLogFragment("level", log.level) + ","
+	schema += getLogFragment("kind", log.kind) + ","
+	if log.client != nil {
+		schema += getLogFragment("ip", log.client.ip) + ","
+		schema += getLogFragment("pk", log.client.pk) + ","
+	}
+	if log.transaction != nil {
+		schema += getLogFragment("tsid", log.transaction.tsid) + ","
+		schema += getLogFragment("routine", log.transaction.routine) + ","
+	}
+	schema += getLogFragment("msg", log.msg)
+	schema += "},"
+	schema += `"required":["time","level","kind","msg"`
+	if log.client != nil {
+		schema += `,"ip","pk"`
+	}
+	if log.transaction != nil {
+		schema += `,"tsid","routine"`
+	}
+	schema += "],"
+	schema += `"additionalProperties":false`
+	schema += "}"
+	return schema
+
+}
+
 // minimum impl to satisfy the interface.
 // doesn't do anything
-type EmptyRoutine struct{}
+type TerminateImmediatelyRoutine struct{}
 
-func (r *EmptyRoutine) Next(args model.RoutineInput) []model.RoutineOutput {
-	return []model.RoutineOutput{model.MakeRoutineOutput(false)}
+func (r *TerminateImmediatelyRoutine) Next(args model.RoutineInput) []model.RoutineOutput {
+	return []model.RoutineOutput{{Done: true}}
 }

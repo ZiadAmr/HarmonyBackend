@@ -2,6 +2,8 @@ package model
 
 import (
 	"errors"
+	"io"
+	"log/slog"
 	"strconv"
 	"strings"
 	"testing"
@@ -13,6 +15,9 @@ import (
 type instantTimeoutRoutine struct {
 	routineNumber int
 }
+
+var ip0 = "1.2.3.4"
+var ip1 = "2001:db8:85a3::8a2e:370:7334"
 
 func (r *instantTimeoutRoutine) Next(args RoutineInput) []RoutineOutput {
 	switch args.MsgType {
@@ -63,7 +68,7 @@ func TestClient(t *testing.T) {
 		// Send two messages with the same transaction id in quick succession.
 		// The master routine is mocked to timeout instantly and not explicity complete
 		// Expect one of the following situations:
-		// - 1 routine was initiated, a timeout {terminte, error} sent, message 2 was ignored and an {error} sent
+		// - 1 routine was initiated, a timeout {terminate, error} sent, message 2 was ignored and an {error} sent
 		// - 2 routines were initiated, both received 1 message, and 2 timeout {terminte, error} messages sent
 
 		mockConn := &mockConn{
@@ -71,14 +76,14 @@ func TestClient(t *testing.T) {
 			fromCl:  make(chan []byte),
 			done:    make(chan struct{}),
 		}
-		client := MakeClient(mockConn)
+		client := MakeClient(mockConn, ip0, slog.New(slog.NewTextHandler(io.Discard, nil)))
 		mockHub := NewHub(testAllowedHostnames)
 
 		var routineInstanceCount = 0
 		// use a mock routine that times out instantly, but doesn't explicity complete.
 		// for each message received by an instantTimeoutRoutine, it sends its routine number back as a string
 		go func() {
-			client.Route(mockHub, func() Routine {
+			client.Route(mockHub, func(logger *slog.Logger) Routine {
 				routineInstanceCount += 1
 				return &instantTimeoutRoutine{
 					routineNumber: routineInstanceCount - 1,

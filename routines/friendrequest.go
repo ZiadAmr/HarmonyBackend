@@ -3,6 +3,7 @@ package routines
 import (
 	"encoding/json"
 	"harmony/backend/model"
+	"log/slog"
 	"time"
 
 	"github.com/xeipuuv/gojsonschema"
@@ -18,16 +19,18 @@ const (
 const frTimeOut = 10 * time.Second
 
 type FriendRequest struct {
-	pkA   *model.PublicKey
-	pkB   *model.PublicKey
-	hub   *model.Hub
-	state FRState
+	pkA    *model.PublicKey
+	pkB    *model.PublicKey
+	hub    *model.Hub
+	state  FRState
+	logger *slog.Logger
 }
 
-func newFriendRequest(client *model.Client, hub *model.Hub) model.Routine {
+func newFriendRequest(client *model.Client, hub *model.Hub, logger *slog.Logger) model.Routine {
 	return &FriendRequest{
-		hub:   hub,
-		state: fr_entry,
+		hub:    hub,
+		state:  fr_entry,
+		logger: logger,
 	}
 }
 
@@ -35,20 +38,17 @@ func (r *FriendRequest) Next(args model.RoutineInput) []model.RoutineOutput {
 
 	switch args.MsgType {
 	case model.RoutineMsgType_Timeout:
-		ros := frError(nil, "Timeout")
-		switch *args.Pk {
-		case *r.pkA:
-			ros = append(ros, frError(r.pkB, "Peer timed out")...)
-		case *r.pkB:
-			ros = append(ros, frError(r.pkA, "Peer timed out")...)
-		}
-		return ros
+		// only pk B can timeout
+		r.logger.Info("pk B timeout", "kind", "ROUTINE_FAIL")
+		return append(frError(nil, "Timeout"), frError(r.pkA, "Peer timed out")...)
 	case model.RoutineMsgType_ClientClose:
 		// terminate the other person
 		switch *args.Pk {
 		case *r.pkA:
+			r.logger.Info("pk A close", "kind", "ROUTINE_FAIL")
 			return frError(r.pkB, "Peer disconnected")
 		case *r.pkB:
+			r.logger.Info("pk B close", "kind", "ROUTINE_FAIL")
 			return frError(r.pkA, "Peer disconnected")
 		default:
 			panic("unknown pk")
@@ -97,6 +97,7 @@ func (r *FriendRequest) entry(args model.RoutineInput) []model.RoutineOutput {
 	// save pkA
 	r.pkA = args.Pk
 	if r.pkA == nil {
+		r.logger.Info("client has no pk", "kind", "ROUTINE_FAIL")
 		return frError(nil, "You have not provided a public key")
 	}
 
@@ -104,10 +105,13 @@ func (r *FriendRequest) entry(args model.RoutineInput) []model.RoutineOutput {
 	usrMsgLoader := gojsonschema.NewStringLoader(args.Msg)
 	result, err := frEntrySchema.Validate(usrMsgLoader)
 	if err != nil {
+		r.logger.Info("bad entry msg: "+err.Error(), "kind", "ROUTINE_FAIL")
 		return frError(nil, err.Error())
 	}
 	if !result.Valid() {
-		return frError(nil, formatJSONError(result))
+		errStr := formatJSONError(result)
+		r.logger.Info("bad entry msg: "+errStr, "kind", "ROUTINE_FAIL")
+		return frError(nil, errStr)
 	}
 
 	// parse msg
@@ -120,6 +124,7 @@ func (r *FriendRequest) entry(args model.RoutineInput) []model.RoutineOutput {
 
 	// check pkB is different from pkA
 	if *(r.pkA) == *(r.pkB) {
+		r.logger.Info("send to self", "kind", "ROUTINE_FAIL")
 		return ectpError(nil, "Sending a friend request to yourself is not allowed")
 	}
 
@@ -127,6 +132,7 @@ func (r *FriendRequest) entry(args model.RoutineInput) []model.RoutineOutput {
 
 	if peerOnline {
 		r.state = fr_reply
+		r.logger.Info(string(*r.pkB), "kind", "ROUTINE_ADD_PK")
 		return []model.RoutineOutput{
 			{
 				Pk:              r.pkB,
@@ -136,6 +142,8 @@ func (r *FriendRequest) entry(args model.RoutineInput) []model.RoutineOutput {
 			},
 		}
 	} else {
+		r.logger.Info(string(*r.pkB), "kind", "ROUTINE_ADD_PK_OFFLINE")
+		r.logger.Info("peer offline", "kind", "ROUTINE_SUCCEED")
 		return []model.RoutineOutput{
 			{
 				Msgs: []string{`{"peerStatus":"offline","forwarded":null,"terminate":"done"}`},
@@ -173,17 +181,21 @@ func (r *FriendRequest) reply(args model.RoutineInput) []model.RoutineOutput {
 
 	// check it's the correct pk
 	if args.Pk == nil || *args.Pk == *r.pkA {
-		return append(frError(nil, "Message send out of order"), frError(r.pkB, "Peer sent a malformed message")...)
+		r.logger.Info("pk A sends message out of order, expecting reply", "kind", "ROUTINE_FAIL")
+		return append(frError(nil, "Message sent out of order"), frError(r.pkB, "Peer sent a malformed message")...)
 	}
 
 	// validate msg
 	usrMsgLoader := gojsonschema.NewStringLoader(args.Msg)
 	result, err := frReplySchema.Validate(usrMsgLoader)
 	if err != nil {
+		r.logger.Info("bad reply msg: "+err.Error(), "kind", "ROUTINE_FAIL")
 		return append(frError(nil, err.Error()), frError(r.pkA, "Peer sent a malformed message")...)
 	}
 	if !result.Valid() {
-		return append(frError(nil, formatJSONError(result)), frError(r.pkA, "Peer sent a malformed message")...)
+		errStr := formatJSONError(result)
+		r.logger.Info("bad reply msg: "+errStr, "kind", "ROUTINE_FAIL")
+		return append(frError(nil, errStr), frError(r.pkA, "Peer sent a malformed message")...)
 	}
 
 	// parse msg
@@ -194,6 +206,7 @@ func (r *FriendRequest) reply(args model.RoutineInput) []model.RoutineOutput {
 	}{}
 	json.Unmarshal([]byte(args.Msg), &usrMsg)
 
+	r.logger.Info("friend request delivered with response "+usrMsg.Forward.Type, "kind", "ROUTINE_SUCCEED")
 	return []model.RoutineOutput{
 		{
 			Pk:   r.pkA,
@@ -216,7 +229,10 @@ func (r *FriendRequest) cancel(args model.RoutineInput) []model.RoutineOutput {
 	} else {
 		var peer = r.pkA
 		if *args.Pk == *r.pkA {
+			r.logger.Info("pk A cancel", "kind", "ROUTINE_FAIL")
 			peer = r.pkB
+		} else {
+			r.logger.Info("pk B cancel", "kind", "ROUTINE_FAIL")
 		}
 		return []model.RoutineOutput{
 			{

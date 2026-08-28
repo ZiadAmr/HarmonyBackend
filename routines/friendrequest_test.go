@@ -1,13 +1,18 @@
 package routines
 
 import (
+	"bytes"
 	"harmony/backend/model"
+	"log/slog"
 	"strconv"
 	"testing"
 	"time"
 )
 
 const frExpectedTimeoutDuration = 10 * time.Second
+const friendRequestRoutineName = "friendRequest"
+
+var friendRequestLoggerAttrs = toAnySlice("ip", ip0, "pk", string(publicKey0), "routine", friendRequestRoutineName, "tsid", tsid1)
 
 func TestFriendRequest(t *testing.T) {
 
@@ -18,13 +23,15 @@ func TestFriendRequest(t *testing.T) {
 				frStepInitiateOffline,
 			}
 
-			client := &model.Client{}
+			client := &model.Client{IpAddr: ip0}
 			client.SetPublicKey(&publicKey0)
 			hub := model.NewHub(testAllowedHostnames)
 			hub.AddClient(*client.GetPublicKey(), client)
-			fr := newFriendRequest(client, hub)
+			var logOutput bytes.Buffer
+			mockLogger := slog.New(slog.NewJSONHandler(&logOutput, nil)).With(friendRequestLoggerAttrs...)
+			fr := newFriendRequest(client, hub, mockLogger)
 
-			testRunner(t, fr, test)
+			testRunner(t, fr, &logOutput, test)
 
 		})
 
@@ -40,17 +47,19 @@ func TestFriendRequest(t *testing.T) {
 						frResponseFromB(status),
 					}
 
-					clientA := &model.Client{}
+					clientA := &model.Client{IpAddr: ip0}
 					clientA.SetPublicKey(&publicKey0)
-					clientB := &model.Client{}
+					clientB := &model.Client{IpAddr: ip1}
 					clientB.SetPublicKey(&publicKey1)
 					hub := model.NewHub(testAllowedHostnames)
 					hub.AddClient(*clientA.GetPublicKey(), clientA)
 					hub.AddClient(*clientB.GetPublicKey(), clientB)
+					var logOutput bytes.Buffer
+					mockLogger := slog.New(slog.NewJSONHandler(&logOutput, nil)).With(friendRequestLoggerAttrs...)
 
-					fr := newFriendRequest(clientA, hub)
+					fr := newFriendRequest(clientA, hub, mockLogger)
 
-					testRunner(t, fr, test)
+					testRunner(t, fr, &logOutput, test)
 				})
 			}
 		})
@@ -77,14 +86,30 @@ func TestFriendRequest(t *testing.T) {
 							},
 						},
 					},
+					logs: []ExpectedLog{
+						{
+							level: "INFO",
+							kind:  ROUTINE_FAIL,
+							client: &ClientLogAttributes{
+								ip: ip0,
+								pk: "nil",
+							},
+							transaction: &TransactionLogAttributes{
+								routine: friendRequestRoutineName,
+								tsid:    tsid1,
+							},
+						},
+					},
 				},
 			}
 
-			client := &model.Client{}
+			client := &model.Client{IpAddr: ip0}
 			hub := model.NewHub(testAllowedHostnames)
-			fr := newFriendRequest(client, hub)
+			var logOutput bytes.Buffer
+			mockLogger := slog.New(slog.NewJSONHandler(&logOutput, nil)).With(friendRequestLoggerAttrs...).With("pk", "nil")
+			fr := newFriendRequest(client, hub, mockLogger)
 
-			testRunner(t, fr, test)
+			testRunner(t, fr, &logOutput, test)
 		})
 
 		t.Run("User attempts to send a friend request to themself", func(t *testing.T) {
@@ -108,15 +133,20 @@ func TestFriendRequest(t *testing.T) {
 							},
 						},
 					},
+					logs: []ExpectedLog{
+						freqLog("INFO", ROUTINE_FAIL, "send to self"),
+					},
 				},
 			}
-			client := &model.Client{}
+			client := &model.Client{IpAddr: ip0}
 			client.SetPublicKey(&publicKey0)
 			hub := model.NewHub(testAllowedHostnames)
 			hub.AddClient(*client.GetPublicKey(), client)
-			fr := newFriendRequest(client, hub)
+			var logOutput bytes.Buffer
+			mockLogger := slog.New(slog.NewJSONHandler(&logOutput, nil)).With(friendRequestLoggerAttrs...)
+			fr := newFriendRequest(client, hub, mockLogger)
 
-			testRunner(t, fr, test)
+			testRunner(t, fr, &logOutput, test)
 		})
 
 		// tests where both are signed in
@@ -137,6 +167,7 @@ func TestFriendRequest(t *testing.T) {
 							Msg:     `{"initiate": "sendFriendRequest"}`,
 						},
 						outputs: outputPkAError,
+						logs:    []ExpectedLog{freqLog("INFO", ROUTINE_FAIL)},
 					},
 
 					{
@@ -147,6 +178,7 @@ func TestFriendRequest(t *testing.T) {
 							Msg:     `{"initiate": "sendFriendRequest", "key":"4"}`,
 						},
 						outputs: outputPkAError,
+						logs:    []ExpectedLog{freqLog("INFO", ROUTINE_FAIL)},
 					},
 
 					{
@@ -157,6 +189,7 @@ func TestFriendRequest(t *testing.T) {
 							Msg:     `)`,
 						},
 						outputs: outputPkAError,
+						logs:    []ExpectedLog{freqLog("INFO", ROUTINE_FAIL)},
 					},
 
 					{
@@ -167,6 +200,7 @@ func TestFriendRequest(t *testing.T) {
 							Msg:     `{"initiate": "sendFriendRequest", "key":"` + (string)(publicKey1) + `", "extraProperty!":{}}`,
 						},
 						outputs: outputPkAError,
+						logs:    []ExpectedLog{freqLog("INFO", ROUTINE_FAIL)},
 					},
 				},
 			},
@@ -176,11 +210,11 @@ func TestFriendRequest(t *testing.T) {
 					frStepInitiateOnline,
 				},
 				cases: []Step{
-					stepPkADisconnect,
-					stepPkBDisconnect,
-					stepPkBTimeout,
-					stepPkACancel,
-					stepPkBCancel,
+					frStepPkADisconnect,
+					frStepPkBDisconnect,
+					frStepPkBTimeout,
+					frStepPkACancel,
+					frStepPkBCancel,
 					{
 						description: "B sends no forward property",
 						input: model.RoutineInput{
@@ -189,6 +223,7 @@ func TestFriendRequest(t *testing.T) {
 							Msg:     `{}`,
 						},
 						outputs: outputPkBErrorToBoth,
+						logs:    []ExpectedLog{freqLog("INFO", "ROUTINE_FAIL")},
 					},
 					{
 						description: "B sends additional properties",
@@ -198,6 +233,7 @@ func TestFriendRequest(t *testing.T) {
 							Msg:     `"{forward":{"type":"reject"},"what": true}`,
 						},
 						outputs: outputPkBErrorToBoth,
+						logs:    []ExpectedLog{freqLog("INFO", "ROUTINE_FAIL")},
 					},
 					{
 						description: "B sends malformed JSON",
@@ -207,6 +243,7 @@ func TestFriendRequest(t *testing.T) {
 							Msg:     `{`,
 						},
 						outputs: outputPkBErrorToBoth,
+						logs:    []ExpectedLog{freqLog("INFO", "ROUTINE_FAIL")},
 					},
 					{
 						description: "B sends invalid response (not reject, accept, or pending)",
@@ -220,6 +257,7 @@ func TestFriendRequest(t *testing.T) {
 							}`,
 						},
 						outputs: outputPkBErrorToBoth,
+						logs:    []ExpectedLog{freqLog("INFO", "ROUTINE_FAIL")},
 					},
 					{
 						description: "A sends message out of order",
@@ -229,6 +267,7 @@ func TestFriendRequest(t *testing.T) {
 							Msg:     "boo!",
 						},
 						outputs: outputPkAErrorToBoth,
+						logs:    []ExpectedLog{freqLog("INFO", "ROUTINE_FAIL")},
 					},
 				},
 			},
@@ -240,16 +279,18 @@ func TestFriendRequest(t *testing.T) {
 
 				t.Run(test.description+"-"+strconv.Itoa(j), func(t *testing.T) {
 
-					clientA := &model.Client{}
+					clientA := &model.Client{IpAddr: ip0}
 					clientA.SetPublicKey(&publicKey0)
-					clientB := &model.Client{}
+					clientB := &model.Client{IpAddr: ip1}
 					clientB.SetPublicKey(&publicKey1)
 					hub := model.NewHub(testAllowedHostnames)
 					hub.AddClient(publicKey0, clientA)
 					hub.AddClient(publicKey1, clientB)
-					fr := newFriendRequest(clientA, hub)
+					var logOutput bytes.Buffer
+					mockLogger := slog.New(slog.NewJSONHandler(&logOutput, nil)).With(friendRequestLoggerAttrs...)
+					fr := newFriendRequest(clientA, hub, mockLogger)
 
-					testRunner(t, fr, append(test.prefaceSteps, testCase), testRunnerConfig{errorsOnLastStepOnly: true})
+					testRunner(t, fr, &logOutput, append(test.prefaceSteps, testCase), testRunnerConfig{errorsOnLastStepOnly: true})
 				})
 
 			}
@@ -257,6 +298,26 @@ func TestFriendRequest(t *testing.T) {
 
 	})
 
+}
+
+func freqLog(level string, kind string, msg ...string) ExpectedLog {
+	var _msg = ""
+	if len(msg) > 0 {
+		_msg = msg[0]
+	}
+	return ExpectedLog{
+		level: level,
+		kind:  kind,
+		client: &ClientLogAttributes{
+			pk: string(publicKey0),
+			ip: ip0,
+		},
+		transaction: &TransactionLogAttributes{
+			routine: friendRequestRoutineName,
+			tsid:    tsid1,
+		},
+		msg: _msg,
+	}
 }
 
 var frStepInitiateOffline = Step{
@@ -278,6 +339,10 @@ var frStepInitiateOffline = Step{
 				Done: true,
 			},
 		},
+	},
+	logs: []ExpectedLog{
+		freqLog("INFO", ROUTINE_ADD_PK_OFFLINE, string(publicKey1)),
+		freqLog("INFO", ROUTINE_SUCCEED),
 	},
 }
 
@@ -302,6 +367,98 @@ var frStepInitiateOnline = Step{
 			},
 		},
 	},
+	logs: []ExpectedLog{
+		freqLog("INFO", ROUTINE_ADD_PK, string(publicKey1)),
+	},
+}
+
+var frStepPkADisconnect = Step{
+	description: "A disconnects",
+	input: model.RoutineInput{
+		MsgType: model.RoutineMsgType_ClientClose,
+		Pk:      &publicKey0,
+	},
+	outputs: outputPkADisconnectedToB,
+	logs:    []ExpectedLog{freqLog("INFO", ROUTINE_FAIL, "pk A close")},
+}
+
+var frStepPkBDisconnect = Step{
+	description: "B disconnects",
+	input: model.RoutineInput{
+		MsgType: model.RoutineMsgType_ClientClose,
+		Pk:      &publicKey1,
+	},
+	outputs: outputPkBDisconnectedToA,
+	logs:    []ExpectedLog{freqLog("INFO", ROUTINE_FAIL, "pk B close")},
+}
+
+var frStepPkACancel = Step{
+	description: "A cancels",
+	input: model.RoutineInput{
+		MsgType: model.RoutineMsgType_UsrMsg,
+		Pk:      &publicKey0,
+		Msg:     `{"terminate":"cancel"}`,
+	},
+	outputs: []ExpectedOutput{
+		{
+			ro: model.RoutineOutput{
+				Pk:   &publicKey0,
+				Done: true,
+			},
+		},
+		{
+			ro: model.RoutineOutput{
+				Pk:   &publicKey1,
+				Msgs: []string{errorSchemaString("Peer cancelled the transaction")},
+				Done: true,
+			},
+		},
+	},
+	logs: []ExpectedLog{freqLog("INFO", ROUTINE_FAIL, "pk A cancel")},
+}
+var frStepPkBCancel = Step{
+	description: "B cancels",
+	input: model.RoutineInput{
+		MsgType: model.RoutineMsgType_UsrMsg,
+		Pk:      &publicKey1,
+		Msg:     `{"terminate":"cancel"}`,
+	},
+	outputs: []ExpectedOutput{
+		{
+			ro: model.RoutineOutput{
+				Pk:   &publicKey1,
+				Done: true,
+			},
+		},
+		{
+			ro: model.RoutineOutput{
+				Pk:   &publicKey0,
+				Msgs: []string{errorSchemaString("Peer cancelled the transaction")},
+				Done: true,
+			},
+		},
+	},
+	logs: []ExpectedLog{freqLog("INFO", ROUTINE_FAIL, "pk B cancel")},
+}
+
+var frStepPkATimeout = Step{
+	description: "A times out",
+	input: model.RoutineInput{
+		MsgType: model.RoutineMsgType_Timeout,
+		Pk:      &publicKey0,
+	},
+	outputs: outputPkATimeoutToBoth,
+	logs:    []ExpectedLog{freqLog("INFO", ROUTINE_FAIL, "pk A timeout")},
+}
+
+var frStepPkBTimeout = Step{
+	description: "B times out",
+	input: model.RoutineInput{
+		MsgType: model.RoutineMsgType_Timeout,
+		Pk:      &publicKey1,
+	},
+	outputs: outputPkBTimeoutToBoth,
+	logs:    []ExpectedLog{freqLog("INFO", ROUTINE_FAIL, "pk B timeout")},
 }
 
 func frResponseFromB(status string) Step {
@@ -331,6 +488,9 @@ func frResponseFromB(status string) Step {
 					Done: true,
 				},
 			},
+		},
+		logs: []ExpectedLog{
+			freqLog("INFO", ROUTINE_SUCCEED, "friend request delivered with response "+status),
 		},
 	}
 }

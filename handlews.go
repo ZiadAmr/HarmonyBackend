@@ -3,6 +3,7 @@ package main
 import (
 	"harmony/backend/model"
 	"harmony/backend/routines"
+	"log/slog"
 	"math/rand"
 	"time"
 
@@ -86,9 +87,11 @@ func handleWs(c *gin.Context) {
 
 }
 
-func createAndRouteClient(conn model.Conn) {
+func createAndRouteClient(conn *websocket.Conn) {
 
-	client := model.MakeClient(conn)
+	clientLogger := logger.With("ip", conn.RemoteAddr().String(), "pk", "nil")
+	clientLogger.Info("Client connect", "kind", "CONNECT")
+	client := model.MakeClient(conn, conn.RemoteAddr().String(), clientLogger)
 
 	// delete client when done (closed connection)
 	defer func() {
@@ -100,10 +103,11 @@ func createAndRouteClient(conn model.Conn) {
 				panic(err)
 			}
 		}
+		clientLogger.Info("Client close", "kind", "CLOSE")
 	}()
 
-	client.Route(hub, func() model.Routine {
-		return routines.NewMasterRoutine(&client, hub)
+	client.Route(hub, func(logger *slog.Logger) model.Routine {
+		return routines.NewMasterRoutine(&client, hub, logger.With("routine", "masterRoutine"))
 	})
 
 }

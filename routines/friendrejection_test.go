@@ -1,9 +1,15 @@
 package routines
 
 import (
+	"bytes"
 	"harmony/backend/model"
+	"log/slog"
 	"testing"
 )
+
+const friendRejectionRoutineName = "friendRejection"
+
+var friendRejectionLoggerAttrs = toAnySlice("ip", ip0, "pk", string(publicKey0), "routine", friendRejectionRoutineName, "tsid", tsid1)
 
 func TestFriendRejection(t *testing.T) {
 
@@ -14,16 +20,18 @@ func TestFriendRejection(t *testing.T) {
 				frejStepOnline,
 			}
 
-			clientA := &model.Client{}
+			clientA := &model.Client{IpAddr: ip0}
 			clientA.SetPublicKey(&publicKey0)
-			clientB := &model.Client{}
+			clientB := &model.Client{IpAddr: ip1}
 			clientB.SetPublicKey(&publicKey1)
 			hub := model.NewHub(testAllowedHostnames)
 			hub.AddClient(*clientA.GetPublicKey(), clientA)
 			hub.AddClient(*clientB.GetPublicKey(), clientB)
-			fr := newFriendRejection(clientA, hub)
+			var logOutput bytes.Buffer
+			mockLogger := slog.New(slog.NewJSONHandler(&logOutput, nil)).With(friendRejectionLoggerAttrs...)
+			fr := newFriendRejection(clientA, hub, mockLogger)
 
-			testRunner(t, fr, test)
+			testRunner(t, fr, &logOutput, test)
 
 		})
 
@@ -33,13 +41,15 @@ func TestFriendRejection(t *testing.T) {
 				frejStepOffline,
 			}
 
-			clientA := &model.Client{}
+			clientA := &model.Client{IpAddr: ip0}
 			clientA.SetPublicKey(&publicKey0)
 			hub := model.NewHub(testAllowedHostnames)
 			hub.AddClient(*clientA.GetPublicKey(), clientA)
-			fr := newFriendRejection(clientA, hub)
+			var logOutput bytes.Buffer
+			mockLogger := slog.New(slog.NewJSONHandler(&logOutput, nil)).With(friendRejectionLoggerAttrs...)
+			fr := newFriendRejection(clientA, hub, mockLogger)
 
-			testRunner(t, fr, test)
+			testRunner(t, fr, &logOutput, test)
 		})
 	})
 
@@ -63,18 +73,34 @@ func TestFriendRejection(t *testing.T) {
 							},
 						},
 					},
+					logs: []ExpectedLog{
+						{
+							level: "INFO",
+							kind:  ROUTINE_FAIL,
+							client: &ClientLogAttributes{
+								ip: ip0,
+								pk: "nil",
+							},
+							transaction: &TransactionLogAttributes{
+								routine: friendRejectionRoutineName,
+								tsid:    tsid1,
+							},
+						},
+					},
 				},
 			}
 
-			clientA := &model.Client{}
-			clientB := &model.Client{}
+			clientA := &model.Client{IpAddr: ip0}
+			clientB := &model.Client{IpAddr: ip1}
 			clientB.SetPublicKey(&publicKey1)
 			hub := model.NewHub(testAllowedHostnames)
 			hub.AddClient(*clientB.GetPublicKey(), clientB)
+			var logOutput bytes.Buffer
+			mockLogger := slog.New(slog.NewJSONHandler(&logOutput, nil)).With(friendRejectionLoggerAttrs...).With("pk", "nil")
 
-			fr := newFriendRejection(clientA, hub)
+			fr := newFriendRejection(clientA, hub, mockLogger)
 
-			testRunner(t, fr, test)
+			testRunner(t, fr, &logOutput, test)
 		})
 
 		t.Run("User sends a message to themself", func(t *testing.T) {
@@ -98,17 +124,22 @@ func TestFriendRejection(t *testing.T) {
 							},
 						},
 					},
+					logs: []ExpectedLog{
+						frejLog("INFO", ROUTINE_FAIL, "send to self"),
+					},
 				},
 			}
 
-			clientA := &model.Client{}
+			clientA := &model.Client{IpAddr: ip0}
 			clientA.SetPublicKey(&publicKey0)
 			hub := model.NewHub(testAllowedHostnames)
 			hub.AddClient(*clientA.GetPublicKey(), clientA)
+			var logOutput bytes.Buffer
+			mockLogger := slog.New(slog.NewJSONHandler(&logOutput, nil)).With(friendRejectionLoggerAttrs...)
 
-			fr := newFriendRejection(clientA, hub)
+			fr := newFriendRejection(clientA, hub, mockLogger)
 
-			testRunner(t, fr, test)
+			testRunner(t, fr, &logOutput, test)
 		})
 
 		tests := []Step{
@@ -120,6 +151,7 @@ func TestFriendRejection(t *testing.T) {
 					Msg:     `{"initiate": "sendFriendRejection"}`,
 				},
 				outputs: outputPkAError,
+				logs:    []ExpectedLog{frejLog("INFO", ROUTINE_FAIL)},
 			},
 
 			{
@@ -130,6 +162,7 @@ func TestFriendRejection(t *testing.T) {
 					Msg:     `{"initiate": "sendFriendRejection", "key":"4"}`,
 				},
 				outputs: outputPkAError,
+				logs:    []ExpectedLog{frejLog("INFO", ROUTINE_FAIL)},
 			},
 
 			{
@@ -140,6 +173,7 @@ func TestFriendRejection(t *testing.T) {
 					Msg:     `)`,
 				},
 				outputs: outputPkAError,
+				logs:    []ExpectedLog{frejLog("INFO", ROUTINE_FAIL)},
 			},
 
 			{
@@ -150,22 +184,25 @@ func TestFriendRejection(t *testing.T) {
 					Msg:     `{"initiate": "sendFriendRejection", "key":"` + (string)(publicKey1) + `", "extraProperty!":{}}`,
 				},
 				outputs: outputPkAError,
+				logs:    []ExpectedLog{frejLog("INFO", ROUTINE_FAIL)},
 			},
 		}
 
 		for _, test := range tests {
 			t.Run(test.description, func(t *testing.T) {
-				clientA := &model.Client{}
+				clientA := &model.Client{IpAddr: ip0}
 				clientA.SetPublicKey(&publicKey0)
-				clientB := &model.Client{}
+				clientB := &model.Client{IpAddr: ip1}
 				clientB.SetPublicKey(&publicKey1)
 				hub := model.NewHub(testAllowedHostnames)
 				hub.AddClient(*clientA.GetPublicKey(), clientA)
 				hub.AddClient(*clientB.GetPublicKey(), clientB)
+				var logOutput bytes.Buffer
+				mockLogger := slog.New(slog.NewJSONHandler(&logOutput, nil)).With(friendRejectionLoggerAttrs...)
 
-				fr := newFriendRejection(clientA, hub)
+				fr := newFriendRejection(clientA, hub, mockLogger)
 
-				testRunner(t, fr, []Step{test})
+				testRunner(t, fr, &logOutput, []Step{test})
 			})
 		}
 	})
@@ -196,6 +233,10 @@ var frejStepOnline = Step{
 			},
 		},
 	},
+	logs: []ExpectedLog{
+		frejLog("INFO", ROUTINE_ADD_PK, string(publicKey1)),
+		frejLog("INFO", ROUTINE_SUCCEED, "friend rejection delivered"),
+	},
 }
 
 var frejStepOffline = Step{
@@ -217,6 +258,30 @@ var frejStepOffline = Step{
 			},
 		},
 	},
+	logs: []ExpectedLog{
+		frejLog("INFO", ROUTINE_ADD_PK_OFFLINE, string(publicKey1)),
+		frejLog("INFO", ROUTINE_SUCCEED, "friend rejection not delivered, peer is offline"),
+	},
+}
+
+func frejLog(level string, kind string, msg ...string) ExpectedLog {
+	var _msg = ""
+	if len(msg) > 0 {
+		_msg = msg[0]
+	}
+	return ExpectedLog{
+		level: level,
+		kind:  kind,
+		client: &ClientLogAttributes{
+			pk: string(publicKey0),
+			ip: ip0,
+		},
+		transaction: &TransactionLogAttributes{
+			routine: friendRejectionRoutineName,
+			tsid:    tsid1,
+		},
+		msg: _msg,
+	}
 }
 
 const frejSchemaOfflineToA = `{
