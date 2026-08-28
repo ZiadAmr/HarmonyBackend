@@ -12,7 +12,7 @@ import (
 const frExpectedTimeoutDuration = 10 * time.Second
 const friendRequestRoutineName = "friendRequest"
 
-var friendRequestLoggerAttrs = toAnySlice("ip", ip0, "pk", string(publicKey1), "routine", friendRequestRoutineName, "tsid", tsid1)
+var friendRequestLoggerAttrs = toAnySlice("ip", ip0, "pk", string(publicKey0), "routine", friendRequestRoutineName, "tsid", tsid1)
 
 func TestFriendRequest(t *testing.T) {
 
@@ -87,7 +87,7 @@ func TestFriendRequest(t *testing.T) {
 						},
 					},
 					logs: []ExpectedLog{
-						ExpectedLog{
+						{
 							level: "INFO",
 							kind:  ROUTINE_FAIL,
 							client: &ClientLogAttributes{
@@ -134,7 +134,7 @@ func TestFriendRequest(t *testing.T) {
 						},
 					},
 					logs: []ExpectedLog{
-						freqLog("INFO", ROUTINE_FAIL, "Send to self"),
+						freqLog("INFO", ROUTINE_FAIL, "send to self"),
 					},
 				},
 			}
@@ -210,11 +210,11 @@ func TestFriendRequest(t *testing.T) {
 					frStepInitiateOnline,
 				},
 				cases: []Step{
-					stepPkADisconnect,
-					stepPkBDisconnect,
-					stepPkBTimeout,
-					stepPkACancel,
-					stepPkBCancel,
+					frStepPkADisconnect,
+					frStepPkBDisconnect,
+					frStepPkBTimeout,
+					frStepPkACancel,
+					frStepPkBCancel,
 					{
 						description: "B sends no forward property",
 						input: model.RoutineInput{
@@ -223,6 +223,7 @@ func TestFriendRequest(t *testing.T) {
 							Msg:     `{}`,
 						},
 						outputs: outputPkBErrorToBoth,
+						logs:    []ExpectedLog{freqLog("INFO", "ROUTINE_FAIL")},
 					},
 					{
 						description: "B sends additional properties",
@@ -232,6 +233,7 @@ func TestFriendRequest(t *testing.T) {
 							Msg:     `"{forward":{"type":"reject"},"what": true}`,
 						},
 						outputs: outputPkBErrorToBoth,
+						logs:    []ExpectedLog{freqLog("INFO", "ROUTINE_FAIL")},
 					},
 					{
 						description: "B sends malformed JSON",
@@ -241,6 +243,7 @@ func TestFriendRequest(t *testing.T) {
 							Msg:     `{`,
 						},
 						outputs: outputPkBErrorToBoth,
+						logs:    []ExpectedLog{freqLog("INFO", "ROUTINE_FAIL")},
 					},
 					{
 						description: "B sends invalid response (not reject, accept, or pending)",
@@ -254,6 +257,7 @@ func TestFriendRequest(t *testing.T) {
 							}`,
 						},
 						outputs: outputPkBErrorToBoth,
+						logs:    []ExpectedLog{freqLog("INFO", "ROUTINE_FAIL")},
 					},
 					{
 						description: "A sends message out of order",
@@ -263,6 +267,7 @@ func TestFriendRequest(t *testing.T) {
 							Msg:     "boo!",
 						},
 						outputs: outputPkAErrorToBoth,
+						logs:    []ExpectedLog{freqLog("INFO", "ROUTINE_FAIL")},
 					},
 				},
 			},
@@ -367,6 +372,95 @@ var frStepInitiateOnline = Step{
 	},
 }
 
+var frStepPkADisconnect = Step{
+	description: "A disconnects",
+	input: model.RoutineInput{
+		MsgType: model.RoutineMsgType_ClientClose,
+		Pk:      &publicKey0,
+	},
+	outputs: outputPkADisconnectedToB,
+	logs:    []ExpectedLog{freqLog("INFO", ROUTINE_FAIL, "pk A close")},
+}
+
+var frStepPkBDisconnect = Step{
+	description: "B disconnects",
+	input: model.RoutineInput{
+		MsgType: model.RoutineMsgType_ClientClose,
+		Pk:      &publicKey1,
+	},
+	outputs: outputPkBDisconnectedToA,
+	logs:    []ExpectedLog{freqLog("INFO", ROUTINE_FAIL, "pk B close")},
+}
+
+var frStepPkACancel = Step{
+	description: "A cancels",
+	input: model.RoutineInput{
+		MsgType: model.RoutineMsgType_UsrMsg,
+		Pk:      &publicKey0,
+		Msg:     `{"terminate":"cancel"}`,
+	},
+	outputs: []ExpectedOutput{
+		{
+			ro: model.RoutineOutput{
+				Pk:   &publicKey0,
+				Done: true,
+			},
+		},
+		{
+			ro: model.RoutineOutput{
+				Pk:   &publicKey1,
+				Msgs: []string{errorSchemaString("Peer cancelled the transaction")},
+				Done: true,
+			},
+		},
+	},
+	logs: []ExpectedLog{freqLog("INFO", ROUTINE_FAIL, "pk A cancel")},
+}
+var frStepPkBCancel = Step{
+	description: "B cancels",
+	input: model.RoutineInput{
+		MsgType: model.RoutineMsgType_UsrMsg,
+		Pk:      &publicKey1,
+		Msg:     `{"terminate":"cancel"}`,
+	},
+	outputs: []ExpectedOutput{
+		{
+			ro: model.RoutineOutput{
+				Pk:   &publicKey1,
+				Done: true,
+			},
+		},
+		{
+			ro: model.RoutineOutput{
+				Pk:   &publicKey0,
+				Msgs: []string{errorSchemaString("Peer cancelled the transaction")},
+				Done: true,
+			},
+		},
+	},
+	logs: []ExpectedLog{freqLog("INFO", ROUTINE_FAIL, "pk B cancel")},
+}
+
+var frStepPkATimeout = Step{
+	description: "A times out",
+	input: model.RoutineInput{
+		MsgType: model.RoutineMsgType_Timeout,
+		Pk:      &publicKey0,
+	},
+	outputs: outputPkATimeoutToBoth,
+	logs:    []ExpectedLog{freqLog("INFO", ROUTINE_FAIL, "pk A timeout")},
+}
+
+var frStepPkBTimeout = Step{
+	description: "B times out",
+	input: model.RoutineInput{
+		MsgType: model.RoutineMsgType_Timeout,
+		Pk:      &publicKey1,
+	},
+	outputs: outputPkBTimeoutToBoth,
+	logs:    []ExpectedLog{freqLog("INFO", ROUTINE_FAIL, "pk B timeout")},
+}
+
 func frResponseFromB(status string) Step {
 	return Step{
 		description: "B responds with status " + status,
@@ -396,7 +490,7 @@ func frResponseFromB(status string) Step {
 			},
 		},
 		logs: []ExpectedLog{
-			freqLog("INFO", ROUTINE_SUCCEED, "Friend request delivered with response "+status),
+			freqLog("INFO", ROUTINE_SUCCEED, "friend request delivered with response "+status),
 		},
 	}
 }

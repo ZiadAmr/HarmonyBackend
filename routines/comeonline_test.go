@@ -247,7 +247,7 @@ func TestComeOnline(t *testing.T) {
 						},
 					},
 				},
-				logs: []ExpectedLog{coLog("INFO", ROUTINE_FAIL, "Concurrent comeOnline")},
+				logs: []ExpectedLog{coLog("INFO", ROUTINE_FAIL, "concurrent comeOnline")},
 			},
 		}
 
@@ -259,7 +259,7 @@ func TestComeOnline(t *testing.T) {
 				mockRndMsgGen := fixedMessageGenerator{testMessage}
 				mockCurrentTimeGen := fixedTimeGen{testTime}
 				mockLogger0 := slog.New(slog.NewJSONHandler(io.Discard, nil)).With(comeOnlineLoggerAttrs...)
-				co0 := newComeOnlineDependencyInj(client, hub, mockRndMsgGen, mockCurrentTimeGen, mockLogger0)
+				co0 := newComeOnlineDependencyInj(client, hub, mockLogger0, mockRndMsgGen, mockCurrentTimeGen)
 
 				// manually run the first test - after this point it is not complete
 				for _, step := range test {
@@ -269,7 +269,7 @@ func TestComeOnline(t *testing.T) {
 				// start another comeOnline
 				var logOutput1 bytes.Buffer
 				mockLogger1 := slog.New(slog.NewJSONHandler(&logOutput1, nil)).With(comeOnlineLoggerAttrs...)
-				co1 := newComeOnlineDependencyInj(client, hub, mockRndMsgGen, mockCurrentTimeGen, mockLogger1)
+				co1 := newComeOnlineDependencyInj(client, hub, mockLogger1, mockRndMsgGen, mockCurrentTimeGen)
 				testRunner(t, co1, &logOutput1, co1Test) // expect it to fail
 			})
 		}
@@ -355,7 +355,6 @@ func TestComeOnline(t *testing.T) {
 						},
 					},
 					logs: []ExpectedLog{
-						coLog("INFO", ROUTINE_INIT, comeOnlineRoutineName),
 						coLog("INFO", ROUTINE_FAIL, "pk A cancel"),
 					},
 				},
@@ -547,7 +546,6 @@ var coStepInitiate = Step{
 			},
 		},
 	},
-	logs: []ExpectedLog{coLog("INFO", ROUTINE_INIT, comeOnlineRoutineName)},
 }
 
 var coStepInitiatePkAlreadySet = Step{
@@ -564,7 +562,6 @@ var coStepInitiatePkAlreadySet = Step{
 		},
 	},
 	logs: []ExpectedLog{
-		coLog("INFO", ROUTINE_INIT, comeOnlineRoutineName),
 		coLog("INFO", ROUTINE_FAIL, "pk already set"),
 	},
 }
@@ -641,7 +638,7 @@ var coStepValidSignature = func(signatureMessage string) Step {
 				},
 			},
 		},
-		logs: []ExpectedLog{coLog("INFO", ROUTINE_SUCCEED)},
+		logs: []ExpectedLog{coLog("INFO", ROUTINE_SUCCEED, string(publicKey0))},
 	}
 }
 
@@ -701,7 +698,7 @@ var coStepInvalidSignature = func(signatureMessage string, errorMessage ...strin
 				},
 			},
 		},
-		logs: []ExpectedLog{coLog("INFO", ROUTINE_FAIL, "Invalid signature")},
+		logs: []ExpectedLog{coLog("INFO", ROUTINE_FAIL)},
 	}
 }
 
@@ -720,7 +717,7 @@ var coStepBadPublicKey = func(publicKeyMessage string, errorMessage ...string) S
 				},
 			},
 		},
-		logs: []ExpectedLog{ectpLog("INFO", ROUTINE_FAIL, "Bad public key")},
+		logs: []ExpectedLog{coLog("INFO", ROUTINE_FAIL)},
 	}
 }
 

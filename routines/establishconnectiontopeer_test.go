@@ -11,7 +11,7 @@ import (
 
 const establishConnectionToPeerRoutineName = "establishConnectionToPeer"
 
-var establishConnectionToPeerLoggerAttrs = toAnySlice("ip", ip0, "pk", string(publicKey1), "routine", establishConnectionToPeerRoutineName, "tsid", tsid1)
+var establishConnectionToPeerLoggerAttrs = toAnySlice("ip", ip0, "pk", string(publicKey0), "routine", establishConnectionToPeerRoutineName, "tsid", tsid1)
 
 const ectpExpectedTimeoutDuration = 20 * time.Second
 const maxIceCandidates = 20
@@ -134,7 +134,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 								pk: "nil",
 							},
 							transaction: &TransactionLogAttributes{
-								routine: friendRejectionRoutineName,
+								routine: establishConnectionToPeerRoutineName,
 								tsid:    tsid1,
 							},
 						},
@@ -145,7 +145,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 			client := &model.Client{IpAddr: ip0}
 			hub := model.NewHub(testAllowedHostnames)
 			var logOutput bytes.Buffer
-			mockLogger := slog.New(slog.NewJSONHandler(&logOutput, nil)).With(establishConnectionToPeerLoggerAttrs...)
+			mockLogger := slog.New(slog.NewJSONHandler(&logOutput, nil)).With(establishConnectionToPeerLoggerAttrs...).With("pk", "nil")
 			ectp := newEstablishConnectionToPeer(client, hub, mockLogger)
 
 			testRunner(t, ectp, &logOutput, test)
@@ -173,7 +173,7 @@ func TestEstablishConnectionToPeer(t *testing.T) {
 						},
 					},
 					logs: []ExpectedLog{
-						frejLog("INFO", ROUTINE_FAIL, "Send to self"),
+						ectpLog("INFO", ROUTINE_FAIL, "send to self"),
 					},
 				},
 			}
@@ -700,6 +700,7 @@ var ectpStepInitiateOnline = Step{
 }
 
 var ectpStepInitiateOffline = Step{
+	description: "A sends a request, B is offline",
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_UsrMsg,
 		Pk:      &publicKey0,
@@ -752,6 +753,7 @@ var ectpStepAcceptAndOffer = Step{
 }
 
 var ectpStepReject = Step{
+	description: "Friend rejects connection request, server terminates both clients",
 	input: model.RoutineInput{
 		MsgType: model.RoutineMsgType_UsrMsg,
 		Pk:      &publicKey1,
@@ -778,7 +780,7 @@ var ectpStepReject = Step{
 		},
 	},
 	logs: []ExpectedLog{
-		ectpLog("INFO", ROUTINE_SUCCEED, "Connection request reject"),
+		ectpLog("INFO", ROUTINE_SUCCEED, "connection request reject"),
 	},
 }
 
@@ -915,7 +917,7 @@ var ectpStepFinalIceATerminate = Step{
 		},
 	},
 	logs: []ExpectedLog{
-		ectpLog("INFO", ROUTINE_SUCCEED, "Peers connect"),
+		ectpLog("INFO", ROUTINE_SUCCEED, "peers connect"),
 	},
 }
 
@@ -974,7 +976,7 @@ var ectpStepFinalIceBTerminate = Step{
 		},
 	},
 	logs: []ExpectedLog{
-		ectpLog("INFO", ROUTINE_SUCCEED, "Peers connect"),
+		ectpLog("INFO", ROUTINE_SUCCEED, "peers connect"),
 	},
 }
 
@@ -985,7 +987,7 @@ var stepPkADisconnect = Step{
 		Pk:      &publicKey0,
 	},
 	outputs: outputPkADisconnectedToB,
-	logs:    []ExpectedLog{freqLog("INFO", ROUTINE_FAIL, "pk A disconnect")},
+	logs:    []ExpectedLog{ectpLog("INFO", ROUTINE_FAIL, "pk A close")},
 }
 
 var stepPkBDisconnect = Step{
@@ -995,7 +997,7 @@ var stepPkBDisconnect = Step{
 		Pk:      &publicKey1,
 	},
 	outputs: outputPkBDisconnectedToA,
-	logs:    []ExpectedLog{freqLog("INFO", ROUTINE_FAIL, "pk B disconnect")},
+	logs:    []ExpectedLog{ectpLog("INFO", ROUTINE_FAIL, "pk B close")},
 }
 
 var stepPkACancel = Step{
@@ -1020,7 +1022,7 @@ var stepPkACancel = Step{
 			},
 		},
 	},
-	logs: []ExpectedLog{freqLog("INFO", ROUTINE_FAIL, "pk A cancel")},
+	logs: []ExpectedLog{ectpLog("INFO", ROUTINE_FAIL, "pk A cancel")},
 }
 var stepPkBCancel = Step{
 	description: "B cancels",
@@ -1044,7 +1046,7 @@ var stepPkBCancel = Step{
 			},
 		},
 	},
-	logs: []ExpectedLog{freqLog("INFO", ROUTINE_FAIL, "pk B cancel")},
+	logs: []ExpectedLog{ectpLog("INFO", ROUTINE_FAIL, "pk B cancel")},
 }
 
 var stepPkATimeout = Step{
@@ -1054,7 +1056,7 @@ var stepPkATimeout = Step{
 		Pk:      &publicKey0,
 	},
 	outputs: outputPkATimeoutToBoth,
-	logs:    []ExpectedLog{freqLog("INFO", ROUTINE_FAIL, "pk A timeout")},
+	logs:    []ExpectedLog{ectpLog("INFO", ROUTINE_FAIL, "pk A timeout")},
 }
 
 var stepPkBTimeout = Step{
@@ -1064,7 +1066,7 @@ var stepPkBTimeout = Step{
 		Pk:      &publicKey1,
 	},
 	outputs: outputPkBTimeoutToBoth,
-	logs:    []ExpectedLog{freqLog("INFO", ROUTINE_FAIL, "pk B timeout")},
+	logs:    []ExpectedLog{ectpLog("INFO", ROUTINE_FAIL, "pk B timeout")},
 }
 
 var outputPkAError = []ExpectedOutput{

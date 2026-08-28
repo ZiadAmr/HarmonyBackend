@@ -9,7 +9,7 @@ import (
 
 const friendRejectionRoutineName = "friendRejection"
 
-var friendRejectionLoggerAttrs = toAnySlice("ip", ip0, "pk", string(publicKey1), "routine", friendRejectionRoutineName, "tsid", tsid1)
+var friendRejectionLoggerAttrs = toAnySlice("ip", ip0, "pk", string(publicKey0), "routine", friendRejectionRoutineName, "tsid", tsid1)
 
 func TestFriendRejection(t *testing.T) {
 
@@ -125,7 +125,7 @@ func TestFriendRejection(t *testing.T) {
 						},
 					},
 					logs: []ExpectedLog{
-						frejLog("INFO", ROUTINE_FAIL, "Send to self"),
+						frejLog("INFO", ROUTINE_FAIL, "send to self"),
 					},
 				},
 			}
@@ -235,7 +235,7 @@ var frejStepOnline = Step{
 	},
 	logs: []ExpectedLog{
 		frejLog("INFO", ROUTINE_ADD_PK, string(publicKey1)),
-		frejLog("INFO", ROUTINE_SUCCEED, "Friend rejection delivered"),
+		frejLog("INFO", ROUTINE_SUCCEED, "friend rejection delivered"),
 	},
 }
 
@@ -260,7 +260,7 @@ var frejStepOffline = Step{
 	},
 	logs: []ExpectedLog{
 		frejLog("INFO", ROUTINE_ADD_PK_OFFLINE, string(publicKey1)),
-		frejLog("INFO", ROUTINE_SUCCEED, "Friend rejection not delivered - peer is offline"),
+		frejLog("INFO", ROUTINE_SUCCEED, "friend rejection not delivered, peer is offline"),
 	},
 }
 

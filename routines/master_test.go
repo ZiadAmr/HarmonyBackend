@@ -20,7 +20,9 @@ func (r *LoggerRoutine) Next(args model.RoutineInput) []model.RoutineOutput {
 	return []model.RoutineOutput{model.MakeRoutineOutput(false)}
 }
 
-var masterRLogAttrs = toAnySlice("ip", ip0, "pk", string(publicKey1), "routine", "masterRoutine", "tsid", tsid1)
+const masterRoutineName = "masterRoutine"
+
+var masterRLogAttrs = toAnySlice("ip", ip0, "pk", string(publicKey1), "routine", masterRoutineName, "tsid", tsid1)
 
 var expectedClientLogAttrs = ClientLogAttributes{
 	ip: ip0,
@@ -64,6 +66,7 @@ func TestMasterRoutine(t *testing.T) {
 
 				testRunner(t, master, &logOutput, []Step{
 					{
+						description: "Invalid initiate message",
 						input: model.RoutineInput{
 							MsgType: model.RoutineMsgType_UsrMsg,
 							Msg:     tt,
@@ -151,6 +154,7 @@ func TestMasterRoutine(t *testing.T) {
 
 				testRunner(t, master, &logOutput, []Step{
 					{
+						description: "Initiate " + tt.initiateKeyword,
 						input: model.RoutineInput{
 							MsgType: model.RoutineMsgType_UsrMsg,
 							Pk:      nil,
@@ -172,7 +176,7 @@ func TestMasterRoutine(t *testing.T) {
 								kind:   ROUTINE_INIT,
 								client: &expectedClientLogAttrs,
 								transaction: &TransactionLogAttributes{
-									routine: tt.initiateKeyword,
+									routine: masterRoutineName,
 									tsid:    tsid1,
 								},
 							},

@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"harmony/backend/model"
+	"harmony/backend/version"
+	"log/slog"
 	"slices"
 	"time"
 
@@ -23,6 +25,7 @@ type ComeOnline struct {
 	step           comeOnlineStep
 	randMsgGen     RandomMessageGenerator
 	currentTimeGen CurrentTimeGenerator
+	logger         *slog.Logger
 
 	challenge        string
 	publicKey        *model.PublicKey
@@ -68,17 +71,18 @@ const ( // enum
 )
 
 // constructor
-func newComeOnline(client *model.Client, hub *model.Hub) model.Routine {
-	return newComeOnlineDependencyInj(client, hub, RandomMessageGeneratorImpl{}, CurrentTimeGeneratorImpl{})
+func newComeOnline(client *model.Client, hub *model.Hub, logger *slog.Logger) model.Routine {
+	return newComeOnlineDependencyInj(client, hub, logger, RandomMessageGeneratorImpl{}, CurrentTimeGeneratorImpl{})
 }
 
-func newComeOnlineDependencyInj(client *model.Client, hub *model.Hub, randMsgGen RandomMessageGenerator, currentTimeGen CurrentTimeGenerator) model.Routine {
+func newComeOnlineDependencyInj(client *model.Client, hub *model.Hub, logger *slog.Logger, randMsgGen RandomMessageGenerator, currentTimeGen CurrentTimeGenerator) model.Routine {
 	return &ComeOnline{
 		client:         client,
 		hub:            hub,
 		randMsgGen:     randMsgGen,
 		currentTimeGen: currentTimeGen,
 		step:           comeOnlineStep_hello,
+		logger:         logger,
 	}
 }
 
@@ -88,6 +92,7 @@ func (c *ComeOnline) Next(args model.RoutineInput) []model.RoutineOutput {
 	if !c.holdsComeOnlineLock {
 		succeed := c.client.ComeOnlineLock.TryLock()
 		if !succeed {
+			c.logger.Info("concurrent comeOnline", "kind", "ROUTINE_FAIL")
 			return makeCOOutput(true, MakeJSONError("Another comeOnline routine is in progress"))
 		}
 		c.holdsComeOnlineLock = true
@@ -109,11 +114,14 @@ func (c *ComeOnline) safeNext(args model.RoutineInput) []model.RoutineOutput {
 
 	switch args.MsgType {
 	case model.RoutineMsgType_ClientClose:
+		c.logger.Info("pk A close", "kind", "ROUTINE_FAIL")
 		return []model.RoutineOutput{}
 	case model.RoutineMsgType_Timeout:
+		c.logger.Info("pk A timeout", "kind", "ROUTINE_FAIL")
 		return makeCOOutput(true, MakeJSONError("timeout"))
 	case model.RoutineMsgType_UsrMsg:
 		if isClientCancelMsg(args.Msg) {
+			c.logger.Info("pk A cancel", "kind", "ROUTINE_FAIL")
 			return makeCOOutput(true)
 		}
 		switch c.step {
@@ -134,21 +142,24 @@ func (c *ComeOnline) safeNext(args model.RoutineInput) []model.RoutineOutput {
 func (c *ComeOnline) hello() []model.RoutineOutput {
 
 	if c.client.GetPublicKey() != nil {
-		return makeCOOutput(true, MakeJSONError("Public key already set"))
+		c.logger.Info("pk already set", "kind", "ROUTINE_FAIL")
+		return makeCOOutput(true, MakeJSONError("public key already set"))
 	}
 	// set next step
 	c.step = comeOnlineStep_recvPublicKey
 	// msgs to return to user
-	return makeCOOutput(false, `{"version":"`+SERVER_API_VERSION+`"}`)
+	return makeCOOutput(false, `{"version":"`+version.SERVER_API_VERSION+`"}`)
 }
 
 func (c *ComeOnline) recvPublicKey(msg string) []model.RoutineOutput {
 	key, keyBytes, err := parseUserKeyMessage(msg)
 	if err != nil {
+		c.logger.Info("bad public key msg: "+err.Error(), "kind", "ROUTINE_FAIL")
 		return makeCOOutput(true, MakeJSONError(err.Error()))
 	}
 	_, clientWithKeyAlreadyExists := c.hub.GetClient(*key)
 	if clientWithKeyAlreadyExists {
+		c.logger.Info("client with key "+string(*key)+" already exists", "kind", "ROUTINE_FAIL")
 		return makeCOOutput(true, MakeJSONError("Another client already signed in with this public key"))
 	}
 
@@ -177,16 +188,19 @@ func (c *ComeOnline) recvSignature(msg string) []model.RoutineOutput {
 	// parse signature to byte array
 	msgObj, err := parseUserSignatureMessage(msg)
 	if err != nil {
+		c.logger.Info("error parsing signature message: "+err.Error(), "kind", "ROUTINE_FAIL")
 		return makeCOOutput(true, MakeJSONError(err.Error()))
 	}
 
 	// check challenge matches
 	if msgObj.Payload.Challenge != c.challenge {
+		c.logger.Info("challenge does not match", "kind", "ROUTINE_FAIL")
 		return makeCOOutput(true, MakeJSONError("Challenge does not match"))
 	}
 
 	// check hostname is allowed
 	if !(slices.Contains(c.hub.AllowedHostnames, msgObj.Payload.Hostname) || slices.Contains(c.hub.AllowedHostnames, "0.0.0.0")) {
+		c.logger.Info(`hostname "`+msgObj.Payload.Hostname+`" not allowed`, "kind", "ROUTINE_FAIL")
 		return makeCOOutput(true, MakeJSONError("Hostname not allowed"))
 	}
 
@@ -195,25 +209,30 @@ func (c *ComeOnline) recvSignature(msg string) []model.RoutineOutput {
 	serverTime, _ := time.Parse(time.RFC3339, serverTimeRFC3339)
 	clientTime, err := time.Parse(time.RFC3339, msgObj.Payload.CurrentTime)
 	if err != nil {
+		c.logger.Info("could not parse client time: "+err.Error(), "kind", "ROUTINE_FAIL")
 		return makeCOOutput(true, MakeJSONError(err.Error()))
 	}
 	if serverTime.Sub(clientTime).Abs() > 2*time.Second {
+		c.logger.Info("client and server times are not synchronized. Current client time is "+msgObj.Payload.CurrentTime, "kind", "ROUTINE_FAIL")
 		return makeCOOutput(true, MakeJSONError("Server and client times are not synchronized. Current server time is "+serverTimeRFC3339))
 	}
 
 	// decode base64 signature
 	sig, err := base64.StdEncoding.DecodeString(msgObj.Signature)
 	if err != nil {
+		c.logger.Info("could not decode signature base64: "+err.Error(), "kind", "ROUTINE_FAIL")
 		return makeCOOutput(true, MakeJSONError(err.Error()))
 	}
 
 	// verify signature
 	serializedPayload, err := canonicaljson.Marshal(msgObj.Payload)
 	if err != nil {
+		c.logger.Info(err.Error(), "kind", "ROUTINE_FAIL")
 		return makeCOOutput(true, MakeJSONError(err.Error()))
 	}
 	valid := ed25519.Verify(*c.ed25519PublicKey, serializedPayload, sig)
 	if !valid {
+		c.logger.Info("invalid signature", "kind", "ROUTINE_FAIL")
 		return makeCOOutput(true, MakeJSONError("Invalid signature"))
 	}
 
@@ -225,6 +244,8 @@ func (c *ComeOnline) recvSignature(msg string) []model.RoutineOutput {
 
 	// set client pk
 	c.client.SetPublicKey(c.publicKey)
+
+	c.logger.Info(string(*c.publicKey), "kind", "ROUTINE_SUCCEED")
 
 	return makeCOOutput(true, `{"welcome":"welcome","terminate":"done"}`)
 }

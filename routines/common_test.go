@@ -261,12 +261,12 @@ func testRunner(t *testing.T, r model.Routine, logOutput *bytes.Buffer, steps []
 
 		// check logs. Should have been formatted as json
 		for i, expectedLog := range step.logs {
+			schemaStr := expectedLogToSchema(expectedLog)
 			got, err := logOutput.ReadString('\n')
 			if err != nil {
-				tErrorf("Error reading log message %d in step %d: %s", i, stepNum, err.Error())
+				tErrorf("Error reading log message %d in step %d: %s. Expected a log to match schema %s", i, stepNum, err.Error(), schemaStr)
 				break
 			}
-			schemaStr := expectedLogToSchema(expectedLog)
 			schemaLoader := gojsonschema.NewStringLoader(schemaStr)
 			schema, err := gojsonschema.NewSchema(schemaLoader)
 			if err != nil {
@@ -350,7 +350,7 @@ func getLogFragment(key string, value string) string {
 		return string(keyEsc) + `:{"type":"string"}`
 	} else {
 		valueEsc, _ := json.Marshal(value)
-		return string(keyEsc) + `{"const":` + string(valueEsc) + `}`
+		return string(keyEsc) + `:{"const":` + string(valueEsc) + `}`
 	}
 }
 

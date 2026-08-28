@@ -3,6 +3,7 @@ package routines
 import (
 	"encoding/json"
 	"harmony/backend/model"
+	"log/slog"
 	"time"
 
 	"github.com/xeipuuv/gojsonschema"
@@ -29,12 +30,14 @@ type EstablishConnectionToPeer struct {
 	pkBHasSentEmptyICECandidate bool
 	hub                         *model.Hub
 	state                       ECTPState
+	logger                      *slog.Logger
 }
 
-func newEstablishConnectionToPeer(client *model.Client, hub *model.Hub) model.Routine {
+func newEstablishConnectionToPeer(client *model.Client, hub *model.Hub, logger *slog.Logger) model.Routine {
 	return &EstablishConnectionToPeer{
-		hub:   hub,
-		state: ectp_entry,
+		hub:    hub,
+		state:  ectp_entry,
+		logger: logger,
 	}
 }
 
@@ -50,8 +53,10 @@ func (r *EstablishConnectionToPeer) Next(args model.RoutineInput) []model.Routin
 		if r.pkA != nil && r.pkB != nil {
 			switch *args.Pk {
 			case *r.pkA:
+				r.logger.Info("pk A timeout", "kind", "ROUTINE_FAIL")
 				ros = append(ros, ectpError(r.pkB, "Peer timed out")...)
 			case *r.pkB:
+				r.logger.Info("pk B timeout", "kind", "ROUTINE_FAIL")
 				ros = append(ros, ectpError(r.pkA, "Peer timed out")...)
 			}
 		}
@@ -62,8 +67,10 @@ func (r *EstablishConnectionToPeer) Next(args model.RoutineInput) []model.Routin
 		if r.pkA != nil && r.pkB != nil {
 			switch *args.Pk {
 			case *r.pkA:
+				r.logger.Info("pk A close", "kind", "ROUTINE_FAIL")
 				return ectpError(r.pkB, "Peer disconnected")
 			case *r.pkB:
+				r.logger.Info("pk B close", "kind", "ROUTINE_FAIL")
 				return ectpError(r.pkA, "Peer disconnected")
 			}
 		}
@@ -101,7 +108,10 @@ func (r *EstablishConnectionToPeer) cancel(args model.RoutineInput) []model.Rout
 	} else {
 		var peer = r.pkA
 		if *args.Pk == *r.pkA {
+			r.logger.Info("pk A cancel", "kind", "ROUTINE_FAIL")
 			peer = r.pkB
+		} else {
+			r.logger.Info("pk B cancel", "kind", "ROUTINE_FAIL")
 		}
 		return []model.RoutineOutput{
 			{
@@ -137,6 +147,7 @@ func (r *EstablishConnectionToPeer) entry(args model.RoutineInput) []model.Routi
 
 	// store public key of first peer
 	if args.Pk == nil {
+		r.logger.Info("client has no pk", "kind", "ROUTINE_FAIL")
 		return ectpError(nil, "You have not provided a public key")
 	}
 	r.pkA = args.Pk
@@ -145,9 +156,11 @@ func (r *EstablishConnectionToPeer) entry(args model.RoutineInput) []model.Routi
 	usrMsgLoader := gojsonschema.NewStringLoader(args.Msg)
 	result, err := ectpEntrySchema.Validate(usrMsgLoader)
 	if err != nil {
+		r.logger.Info("bad entry msg: "+err.Error(), "kind", "ROUTINE_FAIL")
 		return ectpError(nil, err.Error())
 	}
 	if !result.Valid() {
+		r.logger.Info("bad entry msg: "+formatJSONError(result), "kind", "ROUTINE_FAIL")
 		return ectpError(nil, formatJSONError(result))
 	}
 
@@ -161,6 +174,7 @@ func (r *EstablishConnectionToPeer) entry(args model.RoutineInput) []model.Routi
 
 	// check pkB is different from pkA
 	if *(r.pkA) == *(r.pkB) {
+		r.logger.Info("send to self", "kind", "ROUTINE_FAIL")
 		return ectpError(nil, "Connecting to yourself is not allowed")
 	}
 
@@ -168,6 +182,7 @@ func (r *EstablishConnectionToPeer) entry(args model.RoutineInput) []model.Routi
 
 	if peerOnline {
 		r.state = ectp_bAcceptOrReject
+		r.logger.Info(publicKeyToString(*r.pkB), "kind", "ROUTINE_ADD_PK")
 		return []model.RoutineOutput{
 			{
 				Pk:              r.pkB,
@@ -177,6 +192,8 @@ func (r *EstablishConnectionToPeer) entry(args model.RoutineInput) []model.Routi
 			},
 		}
 	} else {
+		r.logger.Info(publicKeyToString(*r.pkB), "kind", "ROUTINE_ADD_PK_OFFLINE")
+		r.logger.Info("peer offline", "kind", "ROUTINE_SUCCEED")
 		return []model.RoutineOutput{
 			{
 				Pk:   r.pkA,
@@ -240,6 +257,7 @@ func (r *EstablishConnectionToPeer) bAcceptOrReject(args model.RoutineInput) []m
 
 	// check response is from B
 	if *args.Pk == *r.pkA {
+		r.logger.Info("pk A sends message out of order, expecting acceptOrReject", "kind", "ROUTINE_FAIL")
 		return append(ectpError(r.pkA, "Message sent out or order"), ectpError(r.pkB, "Peer sent a malformed message")...)
 	}
 
@@ -247,10 +265,13 @@ func (r *EstablishConnectionToPeer) bAcceptOrReject(args model.RoutineInput) []m
 	usrMsgLoader := gojsonschema.NewStringLoader(args.Msg)
 	result, err := bAcceptOrRejectSchema.Validate(usrMsgLoader)
 	if err != nil {
+		r.logger.Info("bad acceptOrReject msg: "+err.Error(), "kind", "ROUTINE_FAIL")
 		return append(ectpError(nil, err.Error()), ectpError(r.pkA, "Peer sent a malformed message")...)
 	}
 	if !result.Valid() {
-		return append(ectpError(nil, formatJSONError(result)), ectpError(r.pkA, "Peer sent a malformed message")...)
+		errStr := formatJSONError(result)
+		r.logger.Info("bad acceptOrReject msg: "+errStr, "kind", "ROUTINE_FAIL")
+		return append(ectpError(nil, errStr), ectpError(r.pkA, "Peer sent a malformed message")...)
 	}
 
 	usrMsg := struct {
@@ -262,6 +283,7 @@ func (r *EstablishConnectionToPeer) bAcceptOrReject(args model.RoutineInput) []m
 
 	switch usrMsg.Forward.Type {
 	case "reject":
+		r.logger.Info("connection request reject", "kind", "ROUTINE_SUCCEED")
 		return []model.RoutineOutput{
 			{
 				Pk:   r.pkA,
@@ -364,6 +386,7 @@ func (r *EstablishConnectionToPeer) aSdpAnswer(args model.RoutineInput) []model.
 
 	// reject any message from B
 	if *args.Pk == *r.pkB {
+		r.logger.Info("pk B sends message out of order, expecting sdpAnswer", "kind", "ROUTINE_FAIL")
 		return append(ectpError(r.pkB, "Message sent out or order"), ectpError(r.pkA, "Peer sent a malformed message")...)
 	}
 
@@ -371,10 +394,13 @@ func (r *EstablishConnectionToPeer) aSdpAnswer(args model.RoutineInput) []model.
 	usrMsgLoader := gojsonschema.NewStringLoader(args.Msg)
 	result, err := aSdpAnswerSchema.Validate(usrMsgLoader)
 	if err != nil {
+		r.logger.Info("bad sdpAnswer msg: "+err.Error(), "kind", "ROUTINE_FAIL")
 		return append(ectpError(nil, err.Error()), ectpError(r.pkB, "Peer sent a malformed message")...)
 	}
 	if !result.Valid() {
-		return append(ectpError(nil, formatJSONError(result)), ectpError(r.pkB, "Peer sent a malformed message")...)
+		errStr := formatJSONError(result)
+		r.logger.Info("bad sdpAnswer msg: "+errStr, "kind", "ROUTINE_FAIL")
+		return append(ectpError(nil, errStr), ectpError(r.pkB, "Peer sent a malformed message")...)
 	}
 
 	// parse msg
@@ -469,11 +495,13 @@ func (r *EstablishConnectionToPeer) iceCandidates(args model.RoutineInput) []mod
 	case *r.pkA:
 		toPk = r.pkB
 		if r.pkAHasSentEmptyICECandidate {
+			r.logger.Info("pk A sends another iceCandidate after final msg", "kind", "ROUTINE_FAIL")
 			return append(ectpError(nil, "Another ICE candidate sent after final ICE candidate"), ectpError(toPk, "Peer sent a malformed message")...)
 		}
 	case *r.pkB:
 		toPk = r.pkA
 		if r.pkBHasSentEmptyICECandidate {
+			r.logger.Info("pk B sends another iceCandidate after final msg", "kind", "ROUTINE_FAIL")
 			return append(ectpError(nil, "Another ICE candidate sent after final ICE candidate"), ectpError(toPk, "Peer sent a malformed message")...)
 		}
 	default:
@@ -484,10 +512,13 @@ func (r *EstablishConnectionToPeer) iceCandidates(args model.RoutineInput) []mod
 	usrMsgLoader := gojsonschema.NewStringLoader(args.Msg)
 	result, err := iceCandidatesSchema.Validate(usrMsgLoader)
 	if err != nil {
+		r.logger.Info("bad iceCandidate msg: "+err.Error(), "kind", "ROUTINE_FAIL")
 		return append(ectpError(nil, err.Error()), ectpError(toPk, "Peer sent a malformed message")...)
 	}
 	if !result.Valid() {
-		return append(ectpError(nil, formatJSONError(result)), ectpError(toPk, "Peer sent a malformed message")...)
+		errStr := formatJSONError(result)
+		r.logger.Info("bad iceCandidate msg: "+errStr, "kind", "ROUTINE_FAIL")
+		return append(ectpError(nil, errStr), ectpError(toPk, "Peer sent a malformed message")...)
 	}
 
 	// parse msg
@@ -526,6 +557,7 @@ func (r *EstablishConnectionToPeer) iceCandidates(args model.RoutineInput) []mod
 		switch *args.Pk {
 		case *r.pkA:
 			if r.pkAICECandidateCount >= ectpMaxICECandidates {
+				r.logger.Info("pk A sends too many ICE candidates", "kind", "ROUTINE_FAIL")
 				return append(
 					ectpError(r.pkA, guiltyPeerErrorMsg),
 					ectpError(r.pkB, innocentPeerErrorMsg)...,
@@ -534,6 +566,7 @@ func (r *EstablishConnectionToPeer) iceCandidates(args model.RoutineInput) []mod
 			r.pkAICECandidateCount++
 		case *r.pkB:
 			if r.pkBICECandidateCount >= ectpMaxICECandidates {
+				r.logger.Info("pk B sends too many ICE candidates", "kind", "ROUTINE_FAIL")
 				return append(
 					ectpError(r.pkA, innocentPeerErrorMsg),
 					ectpError(r.pkB, guiltyPeerErrorMsg)...,
@@ -564,6 +597,7 @@ func (r *EstablishConnectionToPeer) iceCandidates(args model.RoutineInput) []mod
 	forwardedStr, _ := json.Marshal(forwardedData)
 
 	if terminate {
+		r.logger.Info("peers connect", "kind", "ROUTINE_SUCCEED")
 		return []model.RoutineOutput{
 			{
 				Pk:   toPk,
